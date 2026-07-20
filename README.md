@@ -1,6 +1,6 @@
 # LUKATCELL POS
 
-Sistema de punto de venta para LUKATCELL (accesorios de celulares), construido con React + TypeScript + Supabase.
+Sistema de punto de venta para LUKATCELL (tienda de tecnología: cases, micas, audífonos, teclados, insumos de impresora, reparación técnica y más), construido con React + TypeScript + Supabase.
 
 ## Ya está hecho
 

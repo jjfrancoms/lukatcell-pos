@@ -1,14 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid } from 'lucide-react'
+import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid, Star, Percent } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { ProductVariant, CartItem, MetodoPago } from '../types'
 
 const IGV = 0.18
 
-interface Categoria {
-  id: string
-  nombre: string
-}
+interface Categoria { id: string; nombre: string }
 
 const catIcons: Record<string, any> = {
   'Fundas': Smartphone, 'Cables': Cable, 'Audífonos': Headphones,
@@ -26,26 +23,35 @@ function mapRow(r: any): ProductVariant {
   }
 }
 
+function mapDirect(r: any): ProductVariant {
+  return { id: r.id, product_id: r.product_id, color: r.color,
+    modelo_celular_id: r.modelo_celular_id, precio_override: r.precio_override,
+    codigo_barras: r.codigo_barras, product: r.product, modelo: r.modelo }
+}
+
 export default function Venta() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductVariant[]>([])
+  const [favoritos, setFavoritos] = useState<ProductVariant[]>([])
   const [cart, setCart] = useState<CartItem[]>([])
   const [showPago, setShowPago] = useState(false)
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [catActiva, setCatActiva] = useState<string | null>(null)
+  const [descItem, setDescItem] = useState<string | null>(null)
+  const [descValor, setDescValor] = useState('')
+  const [descTipo, setDescTipo] = useState<'pct' | 'fijo'>('pct')
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    supabase.from('categorias').select('id, nombre').order('nombre').then(({ data }) => {
-      setCategorias(data || [])
-    })
+    supabase.from('categorias').select('id, nombre').order('nombre').then(({ data }) => setCategorias(data || []))
+    supabase.rpc('obtener_favoritos').then(({ data }) => setFavoritos((data || []).map(mapRow)))
   }, [])
 
   useEffect(() => {
     searchRef.current?.focus()
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'F4') { e.preventDefault(); if (cart.length) setShowPago(true) }
-      if (e.key === 'Escape') { setShowPago(false); setCart([]) }
+      if (e.key === 'Escape') { setShowPago(false); setCart([]); setDescItem(null) }
       if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus() }
     }
     window.addEventListener('keydown', handler)
@@ -53,45 +59,34 @@ export default function Venta() {
   }, [cart.length])
 
   const buscar = useCallback(async (texto: string) => {
-    setQuery(texto)
-    setCatActiva(null)
+    setQuery(texto); setCatActiva(null)
     if (texto.length < 2) { setResults([]); return }
     const { data } = await supabase.rpc('buscar_variantes', { texto })
     setResults((data || []).map(mapRow))
   }, [])
 
   const cargarCategoria = async (catId: string) => {
-    setCatActiva(catId)
-    setQuery('')
+    setCatActiva(catId); setQuery('')
     const { data } = await supabase.rpc('variantes_por_categoria', { cat_id: catId })
     setResults((data || []).map(mapRow))
   }
 
   const mostrarTodo = async () => {
-    setCatActiva('all')
-    setQuery('')
-    const { data: all } = await supabase
-      .from('product_variants')
+    setCatActiva('all'); setQuery('')
+    const { data } = await supabase.from('product_variants')
       .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)')
       .limit(30)
-    setResults((all || []).map((r: any) => ({
-      id: r.id, product_id: r.product_id, color: r.color,
-      modelo_celular_id: r.modelo_celular_id, precio_override: r.precio_override,
-      codigo_barras: r.codigo_barras, product: r.product, modelo: r.modelo,
-    })))
+    setResults((data || []).map(mapDirect))
   }
 
   const agregarAlCarrito = (variant: ProductVariant) => {
     const precio = variant.precio_override ?? (variant.product as any)?.precio_base ?? 0
     setCart((prev) => {
       const existe = prev.find((i) => i.variant.id === variant.id)
-      if (existe) {
-        return prev.map((i) => i.variant.id === variant.id ? { ...i, cantidad: i.cantidad + 1 } : i)
-      }
-      return [...prev, { variant, cantidad: 1, precio_unitario: precio }]
+      if (existe) return prev.map((i) => i.variant.id === variant.id ? { ...i, cantidad: i.cantidad + 1 } : i)
+      return [...prev, { variant, cantidad: 1, precio_unitario: precio, descuento: 0 } as CartItem]
     })
-    setQuery('')
-    searchRef.current?.focus()
+    setQuery(''); setResults([]); searchRef.current?.focus()
   }
 
   const actualizarCantidad = (variantId: string, cantidad: number) => {
@@ -99,88 +94,69 @@ export default function Venta() {
     setCart((prev) => prev.map((i) => (i.variant.id === variantId ? { ...i, cantidad } : i)))
   }
 
-  const eliminar = (variantId: string) => {
-    setCart((prev) => prev.filter((i) => i.variant.id !== variantId))
+  const aplicarDescuento = (variantId: string) => {
+    const val = Number(descValor) || 0
+    if (val <= 0) { setDescItem(null); return }
+    setCart((prev) => prev.map((i) => {
+      if (i.variant.id !== variantId) return i
+      const desc = descTipo === 'pct' ? (i.precio_unitario * val / 100) : val
+      return { ...i, descuento: Math.min(desc, i.precio_unitario) }
+    }))
+    setDescItem(null); setDescValor(''); setDescTipo('pct')
   }
 
-  const subtotal = cart.reduce((sum, i) => sum + i.precio_unitario * i.cantidad, 0)
+  const eliminar = (variantId: string) => setCart((prev) => prev.filter((i) => i.variant.id !== variantId))
+
+  const subtotal = cart.reduce((sum, i) => sum + (i.precio_unitario - (i as any).descuento) * i.cantidad, 0)
+  const totalDesc = cart.reduce((sum, i) => sum + ((i as any).descuento || 0) * i.cantidad, 0)
   const impuesto = subtotal * IGV
   const total = subtotal + impuesto
+
+  const productosAMostrar = query.length >= 2 || catActiva ? results : favoritos
+  const tituloSeccion = query.length >= 2 ? null : catActiva ? null : favoritos.length > 0 ? '⭐ Productos frecuentes' : null
 
   return (
     <div className="h-full flex flex-col md:flex-row">
       <div className="flex-1 p-4 md:p-6 flex flex-col min-h-0">
-        {/* Buscador */}
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" size={18} />
-          <input
-            ref={searchRef}
-            value={query}
-            onChange={(e) => buscar(e.target.value)}
+          <input ref={searchRef} value={query} onChange={(e) => buscar(e.target.value)}
             placeholder="Escanea o busca un producto (F2)"
-            className="w-full pl-10 pr-4 py-3 rounded-xl border border-ink-100 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm"
-          />
+            className="w-full pl-10 pr-4 py-3 rounded-xl border border-ink-100 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm" />
         </div>
-
-        {/* Categorías */}
-        <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
-          <button
-            onClick={mostrarTodo}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-              catActiva === 'all' ? 'bg-cyan-500 text-ink-900' : 'bg-white border border-ink-100 text-ink-700 hover:border-cyan-500'
-            }`}
-          >
+        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+          <button onClick={mostrarTodo}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${catActiva === 'all' ? 'bg-cyan-500 text-ink-900' : 'bg-white border border-ink-100 text-ink-700 hover:border-cyan-500'}`}>
             <LayoutGrid size={14} /> Todo
           </button>
           {categorias.map((c) => {
             const Icon = catIcons[c.nombre] || Smartphone
             return (
-              <button
-                key={c.id}
-                onClick={() => cargarCategoria(c.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                  catActiva === c.id ? 'bg-cyan-500 text-ink-900' : 'bg-white border border-ink-100 text-ink-700 hover:border-cyan-500'
-                }`}
-              >
+              <button key={c.id} onClick={() => cargarCategoria(c.id)}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${catActiva === c.id ? 'bg-cyan-500 text-ink-900' : 'bg-white border border-ink-100 text-ink-700 hover:border-cyan-500'}`}>
                 <Icon size={14} /> {c.nombre}
               </button>
             )
           })}
         </div>
-
-        {/* Resultados */}
+        {tituloSeccion && <p className="text-xs font-semibold text-ink-400 uppercase tracking-wider mb-2">{tituloSeccion}</p>}
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto">
-          {results.map((v) => {
+          {productosAMostrar.map((v) => {
             const img = (v.product as any)?.imagen_url
             return (
-              <button
-                key={v.id}
-                onClick={() => agregarAlCarrito(v)}
-                className="text-left bg-white rounded-xl border border-ink-100 overflow-hidden hover:border-cyan-500 hover:shadow-md transition-all"
-              >
-                {img && (
-                  <div className="h-28 w-full bg-ink-100 overflow-hidden">
-                    <img src={img} alt="" className="w-full h-full object-cover" />
-                  </div>
-                )}
+              <button key={v.id} onClick={() => agregarAlCarrito(v)}
+                className="text-left bg-white rounded-xl border border-ink-100 overflow-hidden hover:border-cyan-500 hover:shadow-md transition-all">
+                {img && <div className="h-28 w-full bg-ink-100 overflow-hidden"><img src={img} alt="" className="w-full h-full object-cover" /></div>}
                 <div className="p-3">
                   <p className="font-semibold text-sm text-ink-900 truncate">{v.product?.nombre}</p>
-                  <p className="text-xs text-ink-400 mt-0.5">
-                    {[v.color, v.modelo?.modelo].filter(Boolean).join(' · ') || v.product?.sku}
-                  </p>
-                  <p className="text-cyan-700 font-bold mt-1">
-                    S/ {(v.precio_override ?? (v.product as any)?.precio_base ?? 0).toFixed(2)}
-                  </p>
+                  <p className="text-xs text-ink-400 mt-0.5">{[v.color, v.modelo?.modelo].filter(Boolean).join(' · ') || v.product?.sku}</p>
+                  <p className="text-cyan-700 font-bold mt-1">S/ {(v.precio_override ?? (v.product as any)?.precio_base ?? 0).toFixed(2)}</p>
                 </div>
               </button>
             )
           })}
-          {query.length >= 2 && results.length === 0 && (
-            <p className="text-ink-400 text-sm col-span-full py-8 text-center">Sin resultados para "{query}"</p>
-          )}
-          {!query && !catActiva && results.length === 0 && (
-            <p className="text-ink-400 text-sm col-span-full py-8 text-center">Busca un producto o selecciona una categoría</p>
-          )}
+          {query.length >= 2 && results.length === 0 && <p className="text-ink-400 text-sm col-span-full py-8 text-center">Sin resultados para "{query}"</p>}
+          {!query && !catActiva && favoritos.length === 0 && <p className="text-ink-400 text-sm col-span-full py-8 text-center">Busca un producto o selecciona una categoría</p>}
         </div>
       </div>
 
@@ -190,30 +166,55 @@ export default function Venta() {
           <h2 className="font-display font-bold text-ink-900">Venta actual</h2>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {cart.length === 0 && (
-            <p className="text-ink-400 text-sm text-center mt-8">Agrega productos para empezar</p>
-          )}
-          {cart.map((item) => (
-            <div key={item.variant.id} className="flex items-center gap-2 bg-ink-100/60 rounded-lg p-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{item.variant.product?.nombre}</p>
-                <p className="text-xs text-ink-400">S/ {item.precio_unitario.toFixed(2)} c/u</p>
+          {cart.length === 0 && <p className="text-ink-400 text-sm text-center mt-8">Agrega productos para empezar</p>}
+          {cart.map((item) => {
+            const desc = (item as any).descuento || 0
+            const precioFinal = item.precio_unitario - desc
+            return (
+              <div key={item.variant.id} className="bg-ink-100/60 rounded-lg p-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.variant.product?.nombre}</p>
+                    <p className="text-xs text-ink-400">
+                      S/ {item.precio_unitario.toFixed(2)}
+                      {desc > 0 && <span className="text-orange-500 ml-1">→ S/ {precioFinal.toFixed(2)}</span>}
+                    </p>
+                  </div>
+                  <input type="number" min={1} value={item.cantidad}
+                    onChange={(e) => actualizarCantidad(item.variant.id, Number(e.target.value))}
+                    className="w-12 text-center border border-ink-100 rounded py-1 text-sm" />
+                  <p className="w-16 text-right text-sm font-semibold">{(precioFinal * item.cantidad).toFixed(2)}</p>
+                  <button onClick={() => setDescItem(descItem === item.variant.id ? null : item.variant.id)} className="text-ink-400 hover:text-orange-500" title="Descuento">
+                    <Percent size={14} />
+                  </button>
+                  <button onClick={() => eliminar(item.variant.id)} className="text-ink-400 hover:text-red-500">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+                {descItem === item.variant.id && (
+                  <div className="flex items-center gap-2 mt-2 pl-1">
+                    <div className="flex bg-white rounded-lg border border-ink-100 overflow-hidden">
+                      <button onClick={() => setDescTipo('pct')} className={`px-2 py-1 text-xs font-semibold ${descTipo === 'pct' ? 'bg-orange-500 text-white' : 'text-ink-400'}`}>%</button>
+                      <button onClick={() => setDescTipo('fijo')} className={`px-2 py-1 text-xs font-semibold ${descTipo === 'fijo' ? 'bg-orange-500 text-white' : 'text-ink-400'}`}>S/</button>
+                    </div>
+                    <input autoFocus type="number" value={descValor} onChange={(e) => setDescValor(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && aplicarDescuento(item.variant.id)}
+                      placeholder={descTipo === 'pct' ? '10' : '5.00'}
+                      className="w-20 border border-ink-100 rounded-lg px-2 py-1 text-sm" />
+                    <button onClick={() => aplicarDescuento(item.variant.id)}
+                      className="bg-orange-500 text-white text-xs font-semibold px-3 py-1 rounded-lg">OK</button>
+                  </div>
+                )}
               </div>
-              <input
-                type="number" min={1} value={item.cantidad}
-                onChange={(e) => actualizarCantidad(item.variant.id, Number(e.target.value))}
-                className="w-12 text-center border border-ink-100 rounded py-1 text-sm"
-              />
-              <p className="w-16 text-right text-sm font-semibold">
-                {(item.precio_unitario * item.cantidad).toFixed(2)}
-              </p>
-              <button onClick={() => eliminar(item.variant.id)} className="text-ink-400 hover:text-red-500">
-                <Trash2 size={16} />
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
         <div className="p-4 border-t border-ink-100 space-y-1">
+          {totalDesc > 0 && (
+            <div className="flex justify-between text-sm text-orange-500">
+              <span>Descuento</span><span>-S/ {totalDesc.toFixed(2)}</span>
+            </div>
+          )}
           <div className="flex justify-between text-sm text-ink-400">
             <span>Subtotal</span><span>S/ {subtotal.toFixed(2)}</span>
           </div>
@@ -223,22 +224,15 @@ export default function Venta() {
           <div className="flex justify-between text-lg font-bold text-ink-900 mb-3">
             <span>Total</span><span>S/ {total.toFixed(2)}</span>
           </div>
-          <button
-            disabled={cart.length === 0}
-            onClick={() => setShowPago(true)}
-            className="w-full bg-orange-500 disabled:bg-ink-100 disabled:text-ink-400 text-white font-semibold py-3 rounded-xl hover:bg-orange-600 transition-colors"
-          >
+          <button disabled={cart.length === 0} onClick={() => setShowPago(true)}
+            className="w-full bg-orange-500 disabled:bg-ink-100 disabled:text-ink-400 text-white font-semibold py-3 rounded-xl hover:bg-orange-600 transition-colors">
             Cobrar (F4) · S/ {total.toFixed(2)}
           </button>
         </div>
       </div>
 
-      {showPago && (
-        <ModalPago total={total} subtotal={subtotal} impuesto={impuesto} cart={cart}
-          onClose={() => setShowPago(false)}
-          onConfirm={() => { setCart([]); setShowPago(false) }}
-        />
-      )}
+      {showPago && <ModalPago total={total} subtotal={subtotal} impuesto={impuesto} cart={cart}
+        onClose={() => setShowPago(false)} onConfirm={() => { setCart([]); setShowPago(false) }} />}
     </div>
   )
 }
@@ -246,11 +240,14 @@ export default function Venta() {
 async function registrarVenta(cart: CartItem[], subtotal: number, impuesto: number, total: number, metodo: MetodoPago, referencia: string) {
   const { data: sale, error } = await supabase.from('sales').insert({ subtotal, impuesto, total, estado: 'completada' }).select().single()
   if (error || !sale) throw new Error(error?.message || 'No se pudo registrar la venta')
-  const items = cart.map((i) => ({ sale_id: sale.id, variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario, subtotal: i.precio_unitario * i.cantidad }))
-  const { error: itemsError } = await supabase.from('sale_items').insert(items)
-  if (itemsError) throw new Error(itemsError.message)
-  const { error: pagoError } = await supabase.from('payments').insert({ sale_id: sale.id, metodo, monto: total, referencia: referencia || null })
-  if (pagoError) throw new Error(pagoError.message)
+  const items = cart.map((i) => {
+    const desc = (i as any).descuento || 0
+    return { sale_id: sale.id, variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario, subtotal: (i.precio_unitario - desc) * i.cantidad, descuento: desc }
+  })
+  const { error: e2 } = await supabase.from('sale_items').insert(items)
+  if (e2) throw new Error(e2.message)
+  const { error: e3 } = await supabase.from('payments').insert({ sale_id: sale.id, metodo, monto: total, referencia: referencia || null })
+  if (e3) throw new Error(e3.message)
   return sale.id as string
 }
 
@@ -276,8 +273,7 @@ function ModalPago({ total, subtotal, impuesto, cart, onClose, onConfirm }: { to
         <div className="flex gap-2 mb-4">
           {(['efectivo', 'tarjeta', 'yape', 'plin'] as MetodoPago[]).map((m) => (
             <button key={m} onClick={() => setMetodo(m)}
-              className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize border ${metodo === m ? 'bg-cyan-500 text-ink-900 border-cyan-500' : 'border-ink-100 text-ink-400'}`}
-            >{m}</button>
+              className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize border ${metodo === m ? 'bg-cyan-500 text-ink-900 border-cyan-500' : 'border-ink-100 text-ink-400'}`}>{m}</button>
           ))}
         </div>
         {metodo === 'efectivo' ? (
@@ -294,8 +290,8 @@ function ModalPago({ total, subtotal, impuesto, cart, onClose, onConfirm }: { to
         )}
         {error && <p className="text-red-500 text-xs mb-2">{error}</p>}
         <button onClick={confirmarPago} disabled={guardando}
-          className="w-full bg-cyan-500 disabled:opacity-60 text-ink-900 font-bold py-3 rounded-xl hover:bg-cyan-600 transition-colors"
-        >{guardando ? 'Procesando...' : 'Confirmar pago'}</button>
+          className="w-full bg-cyan-500 disabled:opacity-60 text-ink-900 font-bold py-3 rounded-xl hover:bg-cyan-600 transition-colors">
+          {guardando ? 'Procesando...' : 'Confirmar pago'}</button>
       </div>
     </div>
   )

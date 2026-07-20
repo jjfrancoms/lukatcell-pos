@@ -70,8 +70,6 @@ export default function Venta() {
   const mostrarTodo = async () => {
     setCatActiva('all')
     setQuery('')
-    const { data } = await supabase.rpc('buscar_variantes', { texto: '' })
-    // Show all - query with empty won't match, so let's do a direct query
     const { data: all } = await supabase
       .from('product_variants')
       .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)')

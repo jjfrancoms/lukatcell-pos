@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid, Star, Percent } from 'lucide-react'
+import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid, Percent, ShoppingBag } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { ProductVariant, CartItem, MetodoPago } from '../types'
 
 const IGV = 0.18
-
 interface Categoria { id: string; nombre: string }
-
 const catIcons: Record<string, any> = {
   'Fundas': Smartphone, 'Cables': Cable, 'Audífonos': Headphones,
   'Cargadores': Cable, 'Mica y protectores': Shield, 'Teclados': Keyboard,
@@ -14,19 +12,15 @@ const catIcons: Record<string, any> = {
 }
 
 function mapRow(r: any): ProductVariant {
-  return {
-    id: r.id, product_id: r.product_id, color: r.color,
-    modelo_celular_id: r.modelo_celular_id, precio_override: r.precio_override,
-    codigo_barras: r.codigo_barras,
-    product: { nombre: r.producto_nombre, sku: r.producto_sku, precio_base: r.producto_precio, imagen_url: r.producto_imagen } as any,
-    modelo: r.modelo_marca ? { marca: r.modelo_marca, modelo: r.modelo_modelo } as any : null,
-  }
+  return { id: r.id, product_id: r.product_id, color: r.color, modelo_celular_id: r.modelo_celular_id,
+    precio_override: r.precio_override, codigo_barras: r.codigo_barras,
+    product: { nombre: r.producto_nombre, sku: r.producto_sku, precio_base: Number(r.producto_precio), imagen_url: r.producto_imagen } as any,
+    modelo: r.modelo_marca ? { marca: r.modelo_marca, modelo: r.modelo_modelo } as any : null }
 }
 
 function mapDirect(r: any): ProductVariant {
-  return { id: r.id, product_id: r.product_id, color: r.color,
-    modelo_celular_id: r.modelo_celular_id, precio_override: r.precio_override,
-    codigo_barras: r.codigo_barras, product: r.product, modelo: r.modelo }
+  return { id: r.id, product_id: r.product_id, color: r.color, modelo_celular_id: r.modelo_celular_id,
+    precio_override: r.precio_override, codigo_barras: r.codigo_barras, product: r.product, modelo: r.modelo }
 }
 
 export default function Venta() {
@@ -40,18 +34,29 @@ export default function Venta() {
   const [descItem, setDescItem] = useState<string | null>(null)
   const [descValor, setDescValor] = useState('')
   const [descTipo, setDescTipo] = useState<'pct' | 'fijo'>('pct')
+  const [loading, setLoading] = useState(true)
   const searchRef = useRef<HTMLInputElement>(null)
 
+  // Cargar categorías y favoritos al inicio
   useEffect(() => {
-    supabase.from('categorias').select('id, nombre').order('nombre').then(({ data }) => setCategorias(data || []))
-    supabase.rpc('obtener_favoritos').then(({ data }) => setFavoritos((data || []).map(mapRow)))
+    const init = async () => {
+      const [catRes, favRes] = await Promise.all([
+        supabase.from('categorias').select('id, nombre').order('nombre'),
+        supabase.rpc('obtener_favoritos')
+      ])
+      setCategorias(catRes.data || [])
+      const favs = (favRes.data || []).map(mapRow)
+      setFavoritos(favs)
+      setLoading(false)
+    }
+    init()
   }, [])
 
   useEffect(() => {
     searchRef.current?.focus()
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'F4') { e.preventDefault(); if (cart.length) setShowPago(true) }
-      if (e.key === 'Escape') { setShowPago(false); setCart([]); setDescItem(null) }
+      if (e.key === 'Escape') { setShowPago(false); setDescItem(null) }
       if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus() }
     }
     window.addEventListener('keydown', handler)
@@ -67,16 +72,15 @@ export default function Venta() {
 
   const cargarCategoria = async (catId: string) => {
     setCatActiva(catId); setQuery('')
-    const { data } = await supabase.rpc('variantes_por_categoria', { cat_id: catId })
-    setResults((data || []).map(mapRow))
-  }
-
-  const mostrarTodo = async () => {
-    setCatActiva('all'); setQuery('')
-    const { data } = await supabase.from('product_variants')
-      .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)')
-      .limit(30)
-    setResults((data || []).map(mapDirect))
+    if (catId === 'all') {
+      const { data } = await supabase.from('product_variants')
+        .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)')
+        .limit(40)
+      setResults((data || []).map(mapDirect))
+    } else {
+      const { data } = await supabase.rpc('variantes_por_categoria', { cat_id: catId })
+      setResults((data || []).map(mapRow))
+    }
   }
 
   const agregarAlCarrito = (variant: ProductVariant) => {
@@ -84,148 +88,163 @@ export default function Venta() {
     setCart((prev) => {
       const existe = prev.find((i) => i.variant.id === variant.id)
       if (existe) return prev.map((i) => i.variant.id === variant.id ? { ...i, cantidad: i.cantidad + 1 } : i)
-      return [...prev, { variant, cantidad: 1, precio_unitario: precio, descuento: 0 } as CartItem]
+      return [...prev, { variant, cantidad: 1, precio_unitario: precio, descuento: 0 } as any]
     })
-    setQuery(''); setResults([]); searchRef.current?.focus()
+    searchRef.current?.focus()
   }
 
-  const actualizarCantidad = (variantId: string, cantidad: number) => {
-    if (cantidad < 1) return
-    setCart((prev) => prev.map((i) => (i.variant.id === variantId ? { ...i, cantidad } : i)))
-  }
+  const actualizarCantidad = (vid: string, c: number) => { if (c >= 1) setCart((p) => p.map((i) => i.variant.id === vid ? { ...i, cantidad: c } : i)) }
+  const eliminar = (vid: string) => setCart((p) => p.filter((i) => i.variant.id !== vid))
 
-  const aplicarDescuento = (variantId: string) => {
+  const aplicarDescuento = (vid: string) => {
     const val = Number(descValor) || 0
     if (val <= 0) { setDescItem(null); return }
-    setCart((prev) => prev.map((i) => {
-      if (i.variant.id !== variantId) return i
-      const desc = descTipo === 'pct' ? (i.precio_unitario * val / 100) : val
-      return { ...i, descuento: Math.min(desc, i.precio_unitario) }
+    setCart((p) => p.map((i) => {
+      if (i.variant.id !== vid) return i
+      const d = descTipo === 'pct' ? (i.precio_unitario * val / 100) : val
+      return { ...i, descuento: Math.min(d, i.precio_unitario) }
     }))
-    setDescItem(null); setDescValor(''); setDescTipo('pct')
+    setDescItem(null); setDescValor('')
   }
 
-  const eliminar = (variantId: string) => setCart((prev) => prev.filter((i) => i.variant.id !== variantId))
-
-  const subtotal = cart.reduce((sum, i) => sum + (i.precio_unitario - (i as any).descuento) * i.cantidad, 0)
-  const totalDesc = cart.reduce((sum, i) => sum + ((i as any).descuento || 0) * i.cantidad, 0)
+  const subtotal = cart.reduce((s, i) => s + (i.precio_unitario - ((i as any).descuento || 0)) * i.cantidad, 0)
+  const totalDesc = cart.reduce((s, i) => s + ((i as any).descuento || 0) * i.cantidad, 0)
   const impuesto = subtotal * IGV
   const total = subtotal + impuesto
-
-  const productosAMostrar = query.length >= 2 || catActiva ? results : favoritos
-  const tituloSeccion = query.length >= 2 ? null : catActiva ? null : favoritos.length > 0 ? '⭐ Productos frecuentes' : null
+  const productosVisible = query.length >= 2 || catActiva ? results : favoritos
+  const showFavLabel = !query && !catActiva && favoritos.length > 0
 
   return (
-    <div className="h-full flex flex-col md:flex-row">
-      <div className="flex-1 p-4 md:p-6 flex flex-col min-h-0">
+    <div className="h-full flex flex-col md:flex-row bg-[#0d1117]">
+      {/* Panel principal */}
+      <div className="flex-1 p-4 md:p-5 flex flex-col min-h-0">
+        {/* Buscador */}
         <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" size={18} />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input ref={searchRef} value={query} onChange={(e) => buscar(e.target.value)}
-            placeholder="Escanea o busca un producto (F2)"
-            className="w-full pl-10 pr-4 py-3 rounded-xl border border-ink-100 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm" />
+            placeholder="Buscar producto, SKU o escanear código..."
+            className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#161b22] border border-[#30363d] text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm" />
         </div>
-        <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
-          <button onClick={mostrarTodo}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${catActiva === 'all' ? 'bg-cyan-500 text-ink-900' : 'bg-white border border-ink-100 text-ink-700 hover:border-cyan-500'}`}>
-            <LayoutGrid size={14} /> Todo
+
+        {/* Categorías */}
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-hide">
+          <button onClick={() => cargarCategoria('all')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+              catActiva === 'all' ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/30' : 'bg-[#161b22] border border-[#30363d] text-gray-300 hover:border-cyan-500/50 hover:text-white'}`}>
+            <LayoutGrid size={13} /> Todo
           </button>
           {categorias.map((c) => {
             const Icon = catIcons[c.nombre] || Smartphone
             return (
               <button key={c.id} onClick={() => cargarCategoria(c.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${catActiva === c.id ? 'bg-cyan-500 text-ink-900' : 'bg-white border border-ink-100 text-ink-700 hover:border-cyan-500'}`}>
-                <Icon size={14} /> {c.nombre}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                  catActiva === c.id ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/30' : 'bg-[#161b22] border border-[#30363d] text-gray-300 hover:border-cyan-500/50 hover:text-white'}`}>
+                <Icon size={13} /> {c.nombre}
               </button>
             )
           })}
         </div>
-        {tituloSeccion && <p className="text-xs font-semibold text-ink-400 uppercase tracking-wider mb-2">{tituloSeccion}</p>}
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto">
-          {productosAMostrar.map((v) => {
+
+        {/* Título sección */}
+        {showFavLabel && <p className="text-xs font-bold text-cyan-500 uppercase tracking-widest mb-3">⚡ Más vendidos</p>}
+
+        {/* Grid de productos */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto flex-1">
+          {loading && <p className="text-gray-500 text-sm col-span-full py-12 text-center">Cargando productos...</p>}
+          {!loading && productosVisible.map((v) => {
             const img = (v.product as any)?.imagen_url
+            const precio = v.precio_override ?? (v.product as any)?.precio_base ?? 0
             return (
               <button key={v.id} onClick={() => agregarAlCarrito(v)}
-                className="text-left bg-white rounded-xl border border-ink-100 overflow-hidden hover:border-cyan-500 hover:shadow-md transition-all">
-                {img && <div className="h-28 w-full bg-ink-100 overflow-hidden"><img src={img} alt="" className="w-full h-full object-cover" /></div>}
+                className="group text-left bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/10 transition-all">
+                <div className="h-32 w-full bg-[#21262d] overflow-hidden relative">
+                  {img ? <img src={img} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    : <div className="w-full h-full flex items-center justify-center"><ShoppingBag size={32} className="text-gray-600" /></div>}
+                  <span className="absolute bottom-2 right-2 bg-cyan-500 text-black text-xs font-bold px-2 py-0.5 rounded-md">S/ {precio.toFixed(2)}</span>
+                </div>
                 <div className="p-3">
-                  <p className="font-semibold text-sm text-ink-900 truncate">{v.product?.nombre}</p>
-                  <p className="text-xs text-ink-400 mt-0.5">{[v.color, v.modelo?.modelo].filter(Boolean).join(' · ') || v.product?.sku}</p>
-                  <p className="text-cyan-700 font-bold mt-1">S/ {(v.precio_override ?? (v.product as any)?.precio_base ?? 0).toFixed(2)}</p>
+                  <p className="font-semibold text-sm text-white truncate">{v.product?.nombre}</p>
+                  <p className="text-xs text-gray-500 mt-0.5 truncate">
+                    {[v.color, v.modelo?.modelo].filter(Boolean).join(' · ') || v.product?.sku}
+                  </p>
                 </div>
               </button>
             )
           })}
-          {query.length >= 2 && results.length === 0 && <p className="text-ink-400 text-sm col-span-full py-8 text-center">Sin resultados para "{query}"</p>}
-          {!query && !catActiva && favoritos.length === 0 && <p className="text-ink-400 text-sm col-span-full py-8 text-center">Busca un producto o selecciona una categoría</p>}
+          {!loading && query.length >= 2 && results.length === 0 && <p className="text-gray-500 text-sm col-span-full py-12 text-center">Sin resultados para "{query}"</p>}
+          {!loading && !query && !catActiva && favoritos.length === 0 && <p className="text-gray-500 text-sm col-span-full py-12 text-center">Busca un producto o selecciona una categoría</p>}
         </div>
       </div>
 
-      {/* Carrito */}
-      <div className="w-full md:w-96 bg-white border-l border-ink-100 flex flex-col shrink-0">
-        <div className="p-4 border-b border-ink-100">
-          <h2 className="font-display font-bold text-ink-900">Venta actual</h2>
+      {/* Panel carrito */}
+      <div className="w-full md:w-[380px] bg-[#161b22] border-l border-[#30363d] flex flex-col shrink-0">
+        <div className="p-4 border-b border-[#30363d] flex items-center justify-between">
+          <h2 className="font-display font-bold text-white text-base">Venta actual</h2>
+          {cart.length > 0 && <span className="bg-cyan-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
         </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {cart.length === 0 && <p className="text-ink-400 text-sm text-center mt-8">Agrega productos para empezar</p>}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {cart.length === 0 && (
+            <div className="text-center mt-12">
+              <ShoppingBag size={40} className="text-gray-600 mx-auto mb-3" />
+              <p className="text-gray-500 text-sm">Agrega productos para empezar</p>
+            </div>
+          )}
           {cart.map((item) => {
             const desc = (item as any).descuento || 0
-            const precioFinal = item.precio_unitario - desc
+            const pf = item.precio_unitario - desc
             return (
-              <div key={item.variant.id} className="bg-ink-100/60 rounded-lg p-2">
+              <div key={item.variant.id} className="bg-[#21262d] rounded-lg p-3 border border-[#30363d]">
                 <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.variant.product?.nombre}</p>
-                    <p className="text-xs text-ink-400">
-                      S/ {item.precio_unitario.toFixed(2)}
-                      {desc > 0 && <span className="text-orange-500 ml-1">→ S/ {precioFinal.toFixed(2)}</span>}
+                    <p className="text-sm font-medium text-white truncate">{item.variant.product?.nombre}</p>
+                    <p className="text-xs text-gray-500">
+                      S/ {item.precio_unitario.toFixed(2)} c/u
+                      {desc > 0 && <span className="text-orange-400 ml-1 font-semibold">→ S/ {pf.toFixed(2)}</span>}
                     </p>
                   </div>
-                  <input type="number" min={1} value={item.cantidad}
-                    onChange={(e) => actualizarCantidad(item.variant.id, Number(e.target.value))}
-                    className="w-12 text-center border border-ink-100 rounded py-1 text-sm" />
-                  <p className="w-16 text-right text-sm font-semibold">{(precioFinal * item.cantidad).toFixed(2)}</p>
-                  <button onClick={() => setDescItem(descItem === item.variant.id ? null : item.variant.id)} className="text-ink-400 hover:text-orange-500" title="Descuento">
+                  <div className="flex items-center bg-[#0d1117] rounded-lg border border-[#30363d]">
+                    <button onClick={() => actualizarCantidad(item.variant.id, item.cantidad - 1)} className="px-2 py-1 text-gray-400 hover:text-white text-sm">−</button>
+                    <span className="px-2 text-white text-sm font-semibold w-8 text-center">{item.cantidad}</span>
+                    <button onClick={() => actualizarCantidad(item.variant.id, item.cantidad + 1)} className="px-2 py-1 text-gray-400 hover:text-white text-sm">+</button>
+                  </div>
+                  <p className="w-16 text-right text-sm font-bold text-cyan-400">{(pf * item.cantidad).toFixed(2)}</p>
+                  <button onClick={() => setDescItem(descItem === item.variant.id ? null : item.variant.id)} className="text-gray-500 hover:text-orange-400 transition-colors" title="Descuento">
                     <Percent size={14} />
                   </button>
-                  <button onClick={() => eliminar(item.variant.id)} className="text-ink-400 hover:text-red-500">
-                    <Trash2 size={16} />
+                  <button onClick={() => eliminar(item.variant.id)} className="text-gray-500 hover:text-red-400 transition-colors">
+                    <Trash2 size={14} />
                   </button>
                 </div>
                 {descItem === item.variant.id && (
-                  <div className="flex items-center gap-2 mt-2 pl-1">
-                    <div className="flex bg-white rounded-lg border border-ink-100 overflow-hidden">
-                      <button onClick={() => setDescTipo('pct')} className={`px-2 py-1 text-xs font-semibold ${descTipo === 'pct' ? 'bg-orange-500 text-white' : 'text-ink-400'}`}>%</button>
-                      <button onClick={() => setDescTipo('fijo')} className={`px-2 py-1 text-xs font-semibold ${descTipo === 'fijo' ? 'bg-orange-500 text-white' : 'text-ink-400'}`}>S/</button>
+                  <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[#30363d]">
+                    <div className="flex bg-[#0d1117] rounded-lg border border-[#30363d] overflow-hidden">
+                      <button onClick={() => setDescTipo('pct')} className={`px-2.5 py-1 text-xs font-bold transition-colors ${descTipo === 'pct' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>%</button>
+                      <button onClick={() => setDescTipo('fijo')} className={`px-2.5 py-1 text-xs font-bold transition-colors ${descTipo === 'fijo' ? 'bg-orange-500 text-white' : 'text-gray-400'}`}>S/</button>
                     </div>
                     <input autoFocus type="number" value={descValor} onChange={(e) => setDescValor(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && aplicarDescuento(item.variant.id)}
                       placeholder={descTipo === 'pct' ? '10' : '5.00'}
-                      className="w-20 border border-ink-100 rounded-lg px-2 py-1 text-sm" />
+                      className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1 text-sm text-white placeholder-gray-600" />
                     <button onClick={() => aplicarDescuento(item.variant.id)}
-                      className="bg-orange-500 text-white text-xs font-semibold px-3 py-1 rounded-lg">OK</button>
+                      className="bg-orange-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-orange-600 transition-colors">Aplicar</button>
                   </div>
                 )}
               </div>
             )
           })}
         </div>
-        <div className="p-4 border-t border-ink-100 space-y-1">
+        {/* Totales */}
+        <div className="p-4 border-t border-[#30363d] space-y-1.5">
           {totalDesc > 0 && (
-            <div className="flex justify-between text-sm text-orange-500">
-              <span>Descuento</span><span>-S/ {totalDesc.toFixed(2)}</span>
-            </div>
+            <div className="flex justify-between text-sm"><span className="text-orange-400">Descuento</span><span className="text-orange-400 font-semibold">-S/ {totalDesc.toFixed(2)}</span></div>
           )}
-          <div className="flex justify-between text-sm text-ink-400">
-            <span>Subtotal</span><span>S/ {subtotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-sm text-ink-400">
-            <span>IGV (18%)</span><span>S/ {impuesto.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-lg font-bold text-ink-900 mb-3">
-            <span>Total</span><span>S/ {total.toFixed(2)}</span>
+          <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotal</span><span className="text-gray-300">S/ {subtotal.toFixed(2)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-gray-500">IGV (18%)</span><span className="text-gray-300">S/ {impuesto.toFixed(2)}</span></div>
+          <div className="flex justify-between text-xl font-bold pt-2 border-t border-[#30363d]">
+            <span className="text-white">Total</span><span className="text-cyan-400">S/ {total.toFixed(2)}</span>
           </div>
           <button disabled={cart.length === 0} onClick={() => setShowPago(true)}
-            className="w-full bg-orange-500 disabled:bg-ink-100 disabled:text-ink-400 text-white font-semibold py-3 rounded-xl hover:bg-orange-600 transition-colors">
+            className="w-full mt-2 bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:from-[#21262d] disabled:to-[#21262d] disabled:text-gray-600 text-black font-bold py-3.5 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-sm">
             Cobrar (F4) · S/ {total.toFixed(2)}
           </button>
         </div>
@@ -240,10 +259,7 @@ export default function Venta() {
 async function registrarVenta(cart: CartItem[], subtotal: number, impuesto: number, total: number, metodo: MetodoPago, referencia: string) {
   const { data: sale, error } = await supabase.from('sales').insert({ subtotal, impuesto, total, estado: 'completada' }).select().single()
   if (error || !sale) throw new Error(error?.message || 'No se pudo registrar la venta')
-  const items = cart.map((i) => {
-    const desc = (i as any).descuento || 0
-    return { sale_id: sale.id, variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario, subtotal: (i.precio_unitario - desc) * i.cantidad, descuento: desc }
-  })
+  const items = cart.map((i) => ({ sale_id: sale.id, variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario, subtotal: (i.precio_unitario - ((i as any).descuento || 0)) * i.cantidad, descuento: (i as any).descuento || 0 }))
   const { error: e2 } = await supabase.from('sale_items').insert(items)
   if (e2) throw new Error(e2.message)
   const { error: e3 } = await supabase.from('payments').insert({ sale_id: sale.id, metodo, monto: total, referencia: referencia || null })
@@ -261,37 +277,42 @@ function ModalPago({ total, subtotal, impuesto, cart, onClose, onConfirm }: { to
   const confirmarPago = async () => {
     setGuardando(true); setError('')
     try { await registrarVenta(cart, subtotal, impuesto, total, metodo, referencia); onConfirm() }
-    catch (e) { setError(e instanceof Error ? e.message : 'Error al procesar el pago') }
-    finally { setGuardando(false) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Error') } finally { setGuardando(false) }
   }
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-sm p-6 relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-ink-400 hover:text-ink-900"><X size={20} /></button>
-        <h3 className="font-display font-bold text-lg mb-1">Cobrar venta</h3>
-        <p className="text-2xl font-bold text-cyan-700 mb-4">S/ {total.toFixed(2)}</p>
-        <div className="flex gap-2 mb-4">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-[#161b22] rounded-2xl w-full max-w-sm p-6 relative border border-[#30363d] shadow-2xl">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
+        <h3 className="font-display font-bold text-lg text-white mb-1">Cobrar venta</h3>
+        <p className="text-3xl font-bold text-cyan-400 mb-5">S/ {total.toFixed(2)}</p>
+        <div className="grid grid-cols-4 gap-2 mb-5">
           {(['efectivo', 'tarjeta', 'yape', 'plin'] as MetodoPago[]).map((m) => (
             <button key={m} onClick={() => setMetodo(m)}
-              className={`flex-1 py-2 rounded-lg text-xs font-semibold capitalize border ${metodo === m ? 'bg-cyan-500 text-ink-900 border-cyan-500' : 'border-ink-100 text-ink-400'}`}>{m}</button>
+              className={`py-2.5 rounded-xl text-xs font-bold capitalize transition-all ${
+                metodo === m ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/30' : 'bg-[#21262d] border border-[#30363d] text-gray-400 hover:border-cyan-500/50'}`}>{m}</button>
           ))}
         </div>
         {metodo === 'efectivo' ? (
-          <div className="mb-4">
-            <label className="text-xs text-ink-400">Monto recibido</label>
-            <input autoFocus type="number" value={recibido} onChange={(e) => setRecibido(e.target.value)} className="w-full border border-ink-100 rounded-lg px-3 py-2 mt-1" />
-            <p className="text-sm mt-2">Vuelto: <span className="font-semibold">S/ {vuelto.toFixed(2)}</span></p>
+          <div className="mb-5">
+            <label className="text-xs text-gray-500 font-semibold">Monto recibido</label>
+            <input autoFocus type="number" value={recibido} onChange={(e) => setRecibido(e.target.value)}
+              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1.5 text-white text-lg focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            <div className="flex justify-between mt-3 bg-[#21262d] rounded-lg p-3">
+              <span className="text-gray-400 text-sm">Vuelto</span>
+              <span className="text-green-400 font-bold text-lg">S/ {vuelto.toFixed(2)}</span>
+            </div>
           </div>
         ) : (
-          <div className="mb-4">
-            <label className="text-xs text-ink-400">Código de operación</label>
-            <input autoFocus value={referencia} onChange={(e) => setReferencia(e.target.value)} className="w-full border border-ink-100 rounded-lg px-3 py-2 mt-1" />
+          <div className="mb-5">
+            <label className="text-xs text-gray-500 font-semibold">Código de operación</label>
+            <input autoFocus value={referencia} onChange={(e) => setReferencia(e.target.value)}
+              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1.5 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
         )}
-        {error && <p className="text-red-500 text-xs mb-2">{error}</p>}
+        {error && <p className="text-red-400 text-xs mb-3 bg-red-500/10 rounded-lg p-2">{error}</p>}
         <button onClick={confirmarPago} disabled={guardando}
-          className="w-full bg-cyan-500 disabled:opacity-60 text-ink-900 font-bold py-3 rounded-xl hover:bg-cyan-600 transition-colors">
-          {guardando ? 'Procesando...' : 'Confirmar pago'}</button>
+          className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3.5 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all">
+          {guardando ? 'Procesando...' : '✓ Confirmar pago'}</button>
       </div>
     </div>
   )

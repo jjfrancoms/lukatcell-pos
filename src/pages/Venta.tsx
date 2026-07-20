@@ -26,12 +26,18 @@ export default function Venta() {
   const buscar = useCallback(async (texto: string) => {
     setQuery(texto)
     if (texto.length < 2) { setResults([]); return }
-    const { data } = await supabase
-      .from('product_variants')
-      .select('*, product:products(*), modelo:modelos_celular(*)')
-      .or(`codigo_barras.eq.${texto},product.nombre.ilike.%${texto}%`)
-      .limit(12)
-    setResults((data as unknown as ProductVariant[]) || [])
+    const { data } = await supabase.rpc('buscar_variantes', { texto })
+    const mapped = (data || []).map((r: any) => ({
+      id: r.id,
+      product_id: r.product_id,
+      color: r.color,
+      modelo_celular_id: r.modelo_celular_id,
+      precio_override: r.precio_override,
+      codigo_barras: r.codigo_barras,
+      product: { nombre: r.producto_nombre, sku: r.producto_sku, precio_base: r.producto_precio },
+      modelo: r.modelo_marca ? { marca: r.modelo_marca, modelo: r.modelo_modelo } : null,
+    })) as ProductVariant[]
+    setResults(mapped)
   }, [])
 
   const agregarAlCarrito = (variant: ProductVariant) => {

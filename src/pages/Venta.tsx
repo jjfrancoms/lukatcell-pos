@@ -54,9 +54,41 @@ export default function Venta() {
     return () => window.removeEventListener('keydown', handler)
   }, [cart.length])
 
+  // Detección de scanner: input rápido + Enter = código de barras
+  const lastInputTime = useRef(0)
+  const inputBuffer = useRef('')
+
+  const handleSearchKeyDown = async (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && query.length >= 4) {
+      // Posible scan de código de barras — buscar exacto
+      e.preventDefault()
+      const { data } = await supabase.rpc('buscar_por_barcode', { barcode: query.trim() })
+      if (data && data.length > 0) {
+        const variant = mapRow(data[0])
+        agregarAlCarrito(variant)
+        setQuery('')
+        setResults([])
+        return
+      }
+    }
+  }
+
   const buscar = useCallback(async (texto: string) => {
     setQuery(texto); setCatActiva(null)
     if (texto.length < 2) { setResults([]); return }
+
+    // Si parece un código de barras (solo números, 8+ dígitos), buscar exacto primero
+    if (/^\d{8,}$/.test(texto)) {
+      const { data: exact } = await supabase.rpc('buscar_por_barcode', { barcode: texto })
+      if (exact && exact.length > 0) {
+        const variant = mapRow(exact[0])
+        agregarAlCarrito(variant)
+        setQuery('')
+        setResults([])
+        return
+      }
+    }
+
     const { data } = await supabase.rpc('buscar_variantes', { texto })
     setResults((data || []).map(mapRow))
   }, [])
@@ -104,7 +136,8 @@ export default function Venta() {
         <div className="relative mb-3">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input ref={searchRef} value={query} onChange={(e) => buscar(e.target.value)}
-            placeholder="Buscar producto, SKU o escanear código..."
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Buscar producto, SKU o escanear código de barras..."
             className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#161b22] border border-[#30363d] text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm" />
         </div>
         <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">

@@ -82,11 +82,24 @@ function ModalNuevoPersonal({ onClose, onCreated }: { onClose: () => void; onCre
 
   const guardar = async () => {
     setGuardando(true); setError('')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())) {
+      setError('El correo no es válido (ej: nombre@correo.com)')
+      setGuardando(false)
+      return
+    }
     const { data, error: err } = await supabase.functions.invoke('crear-personal', {
       body: { nombre: nombre.trim(), username: username.trim(), correo: correo.trim(), password, rol },
     })
     setGuardando(false)
-    if (err || data?.error) { setError(data?.error || err?.message || 'No se pudo crear el personal'); return }
+    if (err || data?.error) {
+      let mensaje = data?.error || err?.message || 'No se pudo crear el personal'
+      const context = (err as { context?: Response })?.context
+      if (context && typeof context.json === 'function') {
+        try { const body = await context.json(); if (body?.error) mensaje = body.error } catch { /* respuesta no era JSON */ }
+      }
+      setError(mensaje)
+      return
+    }
     onCreated()
   }
 

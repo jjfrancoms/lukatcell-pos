@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Clock, TrendingUp } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import type { CashSession } from '../types'
 
 export default function Caja() {
+  const { staff, refreshCashSession } = useAuth()
   const [sesionActiva, setSesionActiva] = useState<CashSession | null>(null)
   const [historial, setHistorial] = useState<CashSession[]>([])
   const [montoInicial, setMontoInicial] = useState('')
@@ -12,25 +14,36 @@ export default function Caja() {
   const [cargando, setCargando] = useState(false)
 
   const cargarSesion = async () => {
-    const { data } = await supabase.from('cash_sessions').select('*').is('cierre', null).order('apertura', { ascending: false }).limit(1).maybeSingle()
+    if (!staff) return
+    const { data } = await supabase.from('cash_sessions').select('*').eq('cajero_id', staff.id).is('cierre', null).order('apertura', { ascending: false }).limit(1).maybeSingle()
     setSesionActiva(data)
   }
   const cargarHistorial = async () => {
-    const { data } = await supabase.from('cash_sessions').select('*').not('cierre', 'is', null).order('cierre', { ascending: false }).limit(20)
+    if (!staff) return
+    const { data } = await supabase.from('cash_sessions').select('*').eq('cajero_id', staff.id).not('cierre', 'is', null).order('cierre', { ascending: false }).limit(20)
     setHistorial(data || [])
   }
-  useEffect(() => { cargarSesion(); cargarHistorial() }, [])
+  useEffect(() => { cargarSesion(); cargarHistorial() }, [staff])
   useEffect(() => {
     if (!sesionActiva) return
     supabase.from('payments').select('monto, sale:sales!inner(cash_session_id)').eq('metodo', 'efectivo').eq('sale.cash_session_id', sesionActiva.id)
       .then(({ data }) => setVentasEfectivo((data || []).reduce((s: number, p: any) => s + Number(p.monto), 0)))
   }, [sesionActiva])
 
-  const abrirTurno = async () => { setCargando(true); await supabase.from('cash_sessions').insert({ monto_inicial: Number(montoInicial) || 0 }); setMontoInicial(''); await cargarSesion(); setCargando(false) }
+  const abrirTurno = async () => {
+    if (!staff) return
+    setCargando(true)
+    await supabase.from('cash_sessions').insert({ monto_inicial: Number(montoInicial) || 0, cajero_id: staff.id, location_id: staff.location_id })
+    setMontoInicial('')
+    await cargarSesion(); await refreshCashSession()
+    setCargando(false)
+  }
   const cerrarTurno = async () => {
     if (!sesionActiva) return; setCargando(true)
     await supabase.from('cash_sessions').update({ cierre: new Date().toISOString(), monto_final_esperado: sesionActiva.monto_inicial + ventasEfectivo, monto_final_contado: Number(montoContado) || 0 }).eq('id', sesionActiva.id)
-    setMontoContado(''); setSesionActiva(null); await cargarSesion(); await cargarHistorial(); setCargando(false)
+    setMontoContado(''); setSesionActiva(null)
+    await cargarSesion(); await cargarHistorial(); await refreshCashSession()
+    setCargando(false)
   }
 
   return (

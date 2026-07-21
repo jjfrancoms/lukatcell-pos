@@ -28,3 +28,11 @@ input[type="number"] { -moz-appearance: textfield; }
 
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: fixed; top: 0; left: 0; width: 80mm; }
+  .no-print { display: none !important; }
+  @page { margin: 0; }
+}

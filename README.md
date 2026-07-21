@@ -2,27 +2,26 @@
 
 Sistema de punto de venta para LUKATCELL (tienda de tecnología: cases, micas, audífonos, teclados, insumos de impresora, reparación técnica y más), construido con React + TypeScript + Supabase.
 
-## Ya está hecho
+## Roadmap y estado
 
-- Proyecto Supabase real y activo: lukatcell-pos (ref: fbwkclpgnsxuqycazumj, región São Paulo)
-- Esquema completo de base de datos aplicado: productos, variantes (color + modelo de celular), inventario por ubicación, ventas, pagos, sesiones de caja, movimientos de inventario
-- Triggers automáticos: descuento de stock al vender, validación de stock antes de confirmar venta, cálculo de diferencia de caja al cerrar turno
-- Row Level Security configurado (cajeros ven solo su sesión activa; inventario y ventas filtrados por ubicación; solo administradores editan catálogo)
-- 4 pantallas funcionales conectadas a la base de datos real:
-  - / Venta — búsqueda, carrito, cobro con 4 métodos de pago (efectivo/tarjeta/Yape/Plin), atajos de teclado (F2 buscar, F4 cobrar, Esc cancelar)
-  - /caja — apertura y cierre de turno con cálculo automático de diferencia
-  - /inventario — listado con alerta de stock bajo y filtros
-  - /reportes — dashboard con ventas del día, ticket promedio, y exportación a Excel con estilo de marca
-- Paleta e identidad visual de LUKATCELL aplicada (cian #17BFE0, naranja #FF8C00)
-- Compila sin errores (tsc + vite build verificados)
+- **Fase 1 — Responsive + correcciones**: sidebar de escritorio colapsable, menú móvil, fallback de imagen rota, favoritos con respaldo cuando no hay ninguno marcado. ✅
+- **Fase 2a — Órdenes de servicio**: registro de reparaciones, datos de cliente y equipo, seguimiento por estado (recibido → diagnosticado → en reparación → listo → entregado), comprobante imprimible. ✅
+- **Fase 2b — Dashboard de ganancias**: costo por producto editable (solo admin), margen por venta/producto vía RPC `resumen_ganancias` / `top_productos_ganancia`, top productos por ganancia. ✅
+- **Fase 3a — Pago mixto**: varias formas de pago en una misma venta (ej. efectivo + Yape), registro detallado por método en `payments`. ✅
+- **Fase 3b — Clientes frecuentes**: registro nombre + teléfono, historial de compras, notas por cliente. ✅
+- **Fase 4 — Producción real**:
+  - Login con Supabase Auth (cajero vs administrador) vía tabla `staff` + políticas RLS. ✅
+  - Impresión de comprobantes (venta y orden de servicio) vía diálogo de impresión del navegador con plantilla de 80mm. ✅ — impresión térmica ESC/POS cruda (corte automático, código de barras) requeriría un servicio local (`node-thermal-printer`) corriendo en la PC de la tienda; no aplica a un deploy serverless en Vercel, queda como mejora futura opcional.
+  - Offline-first: catálogo cacheado en IndexedDB (`idb`), ventas realizadas sin conexión se encolan y sincronizan automáticamente al reconectar. ✅
+  - Dominio personalizado: pendiente de que el dominio se apunte por DNS (ver sección de deploy).
 
-## Pendiente antes de producción
+## Primer ingreso
 
-1. Autenticación real: hoy las pantallas no tienen login. Falta implementar Supabase Auth y un hook useAuth() que resuelva staff_id, location_id y la sesión de caja activa. Las políticas RLS y las inserciones de venta ya están preparadas para usar auth.uid().
-2. Cargar catálogo inicial: crear al menos una location, categorías, modelos de celular, productos y variantes de ejemplo (hoy las tablas están vacías).
-3. Ligar venta a location_id y cash_session_id: la función registrarVenta en Venta.tsx inserta la venta sin estos campos; deben completarse desde el contexto de sesión una vez exista login.
-4. Impresión térmica: no implementada aún (siguiente paso, vía servicio Node local con node-thermal-printer).
-5. Offline-first (IndexedDB): no implementado en esta primera versión; se recomienda añadirlo cuando el flujo principal esté validado en tienda.
+No hay usuarios todavía. Al abrir la app por primera vez, la pantalla de login detecta que no existe personal registrado y muestra la pestaña **"Crear administrador"**: completa tu nombre, correo y contraseña para crear la primera cuenta (queda como `administrador`). Desde ahí puedes crear más cuentas de `cajero` insertando filas en la tabla `staff` desde el panel de Supabase (vinculadas a un usuario creado en Authentication → Users).
+
+## Seguridad
+
+Las políticas RLS que permitían acceso anónimo total (heredadas de la etapa sin login) fueron retiradas: ahora todas las tablas de negocio (ventas, caja, pagos, inventario, clientes, órdenes de servicio) requieren sesión autenticada. El catálogo de productos (nombre/precio) se mantiene de lectura pública porque no es información sensible.
 
 ## Cómo correrlo localmente
 
@@ -31,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Las credenciales de Supabase ya están en .env (proyecto real y activo).
+Las credenciales de Supabase ya están en `.env` (proyecto real y activo).
 
 ## Panel de Supabase
 

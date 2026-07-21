@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle, Search, Plus, Minus, History, X, Package, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 
 interface FilaInventario {
   variant_id: string; cantidad: number; stock_minimo: number; location_id: string
   variant: { id: string; color: string | null; codigo_barras: string | null
-    product: { nombre: string; sku: string | null; imagen_url: string | null }
+    product: { id: string; nombre: string; sku: string | null; imagen_url: string | null; costo: number }
     modelo: { marca: string; modelo: string } | null }
 }
 
@@ -14,6 +15,7 @@ interface Movimiento {
 }
 
 export default function Inventario() {
+  const { isAdmin } = useAuth()
   const [filas, setFilas] = useState<FilaInventario[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [soloStockBajo, setSoloStockBajo] = useState(false)
@@ -24,12 +26,20 @@ export default function Inventario() {
   const [ajusteMotivo, setAjusteMotivo] = useState('Entrada de mercadería')
   const [ajusteTipo, setAjusteTipo] = useState<'entrada' | 'salida'>('entrada')
   const [guardando, setGuardando] = useState(false)
+  const [costoEdit, setCostoEdit] = useState<Record<string, string>>({})
 
   const cargar = async () => {
     const { data } = await supabase.from('inventory')
-      .select('variant_id, cantidad, stock_minimo, location_id, variant:product_variants(id, color, codigo_barras, product:products(nombre, sku, imagen_url), modelo:modelos_celular(marca, modelo))')
+      .select('variant_id, cantidad, stock_minimo, location_id, variant:product_variants(id, color, codigo_barras, product:products(id, nombre, sku, imagen_url, costo), modelo:modelos_celular(marca, modelo))')
       .order('cantidad', { ascending: true })
     setFilas((data as unknown as FilaInventario[]) || [])
+  }
+
+  const guardarCosto = async (productId: string, valor: string) => {
+    const costo = Number(valor)
+    if (Number.isNaN(costo) || costo < 0) return
+    await supabase.from('products').update({ costo }).eq('id', productId)
+    setFilas((fs) => fs.map((f) => f.variant?.product?.id === productId ? { ...f, variant: { ...f.variant, product: { ...f.variant.product, costo } } } : f))
   }
 
   useEffect(() => { cargar() }, [])
@@ -107,16 +117,24 @@ export default function Inventario() {
             <th className="text-left px-3 py-3 text-xs text-gray-500 uppercase">Código</th>
             <th className="text-right px-3 py-3 text-xs text-gray-500 uppercase">Stock</th>
             <th className="text-right px-3 py-3 text-xs text-gray-500 uppercase">Mín</th>
+            {isAdmin && <th className="text-right px-3 py-3 text-xs text-gray-500 uppercase">Costo</th>}
             <th className="px-3 py-3 text-xs text-gray-500 uppercase text-center">Acciones</th>
           </tr></thead>
           <tbody className="divide-y divide-[#30363d]">
             {filtradas.map((f) => {
               const img = f.variant?.product?.imagen_url
+              const productId = f.variant?.product?.id
+              const costoActual = f.variant?.product?.costo ?? 0
               return (
                 <tr key={f.variant_id} className="hover:bg-[#21262d] transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      {img && <img src={img} alt="" className="w-8 h-8 rounded-md object-cover shrink-0" />}
+                      {img ? (
+                        <img src={img} alt="" className="w-8 h-8 rounded-md object-cover shrink-0 bg-[#21262d]"
+                          onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                      ) : (
+                        <div className="w-8 h-8 rounded-md bg-[#21262d] flex items-center justify-center shrink-0"><Package size={14} className="text-gray-600" /></div>
+                      )}
                       <div className="min-w-0">
                         <p className="font-medium text-white truncate">{f.variant?.product?.nombre}</p>
                         <p className="text-xs text-gray-500">{f.variant?.product?.sku}</p>
@@ -133,6 +151,15 @@ export default function Inventario() {
                     <span className={`font-bold ${f.cantidad <= f.stock_minimo ? 'text-orange-400' : f.cantidad > 15 ? 'text-green-400' : 'text-white'}`}>{f.cantidad}</span>
                   </td>
                   <td className="px-3 py-3 text-right text-gray-500">{f.stock_minimo}</td>
+                  {isAdmin && (
+                    <td className="px-3 py-3 text-right">
+                      <input type="number" min="0" step="0.01"
+                        value={costoEdit[productId] ?? costoActual}
+                        onChange={(e) => setCostoEdit((c) => ({ ...c, [productId]: e.target.value }))}
+                        onBlur={(e) => guardarCosto(productId, e.target.value)}
+                        className="w-20 bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1 text-right text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-cyan-500" />
+                    </td>
+                  )}
                   <td className="px-3 py-3">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => { setAjusteModal(f); setAjusteTipo('entrada') }}
@@ -152,7 +179,7 @@ export default function Inventario() {
                 </tr>
               )
             })}
-            {filtradas.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-500">Sin resultados</td></tr>}
+            {filtradas.length === 0 && <tr><td colSpan={isAdmin ? 7 : 6} className="px-4 py-10 text-center text-gray-500">Sin resultados</td></tr>}
           </tbody>
         </table>
       </div>

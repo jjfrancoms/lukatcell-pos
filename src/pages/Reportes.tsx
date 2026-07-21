@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Download, TrendingUp, Receipt, CreditCard, DollarSign, Percent, Trophy } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Download, TrendingUp, Receipt, CreditCard, DollarSign, Percent, Trophy, AlertTriangle, Clock, ChevronRight } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 
 interface VentaFila { id: string; fecha: string; total: number; estado: string }
 interface Ganancias { total_ventas: number; total_costo: number; total_ganancia: number; margen_promedio: number; num_ventas: number }
 interface TopProducto { producto_nombre: string; producto_sku: string | null; unidades_vendidas: number; ingreso: number; costo_total: number; ganancia: number; margen: number }
+interface StockBajoFila { variant_id: string; cantidad: number; stock_minimo: number; variant: { product: { nombre: string } | null } | null }
+interface OrdenEstancada { id: string; numero: number; cliente_nombre: string; estado: string; fecha_recepcion: string }
+
+const ORDEN_ESTANCADA_DIAS = 3
 
 type Rango = 'hoy' | 'semana' | 'mes'
 
@@ -19,6 +25,7 @@ function rangoFechas(rango: Rango) {
 }
 
 export default function Reportes() {
+  const { isAdmin } = useAuth()
   const [ventas, setVentas] = useState<VentaFila[]>([])
   const [totalHoy, setTotalHoy] = useState(0)
   const [ticketPromedio, setTicketPromedio] = useState(0)
@@ -26,6 +33,21 @@ export default function Reportes() {
   const [rango, setRango] = useState<Rango>('semana')
   const [ganancias, setGanancias] = useState<Ganancias | null>(null)
   const [topProductos, setTopProductos] = useState<TopProducto[]>([])
+  const [stockBajo, setStockBajo] = useState<StockBajoFila[]>([])
+  const [ordenesEstancadas, setOrdenesEstancadas] = useState<OrdenEstancada[]>([])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    supabase.from('inventory').select('variant_id, cantidad, stock_minimo, variant:product_variants(product:products(nombre))')
+      .order('cantidad', { ascending: true }).limit(200)
+      .then(({ data }) => setStockBajo(((data as unknown as StockBajoFila[]) || []).filter((f) => f.cantidad <= f.stock_minimo).slice(0, 6)))
+
+    const limite = new Date(); limite.setDate(limite.getDate() - ORDEN_ESTANCADA_DIAS)
+    supabase.from('ordenes_servicio').select('id, numero, cliente_nombre, estado, fecha_recepcion')
+      .not('estado', 'in', '(entregado,cancelado)').lt('fecha_recepcion', limite.toISOString())
+      .order('fecha_recepcion', { ascending: true }).limit(6)
+      .then(({ data }) => setOrdenesEstancadas(data || []))
+  }, [isAdmin])
 
   useEffect(() => {
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
@@ -84,6 +106,43 @@ export default function Reportes() {
           <p className="text-xl md:text-2xl font-bold text-white">{cantHoy}</p>
         </div>
       </div>
+
+      {isAdmin && (stockBajo.length > 0 || ordenesEstancadas.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+          {stockBajo.length > 0 && (
+            <div className="bg-[#161b22] rounded-2xl border border-orange-500/20 p-4 md:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2"><AlertTriangle size={15} className="text-orange-400" /> Stock bajo</h3>
+                <Link to="/inventario" className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5">Ver todo <ChevronRight size={13} /></Link>
+              </div>
+              <div className="space-y-2">
+                {stockBajo.map((f) => (
+                  <div key={f.variant_id} className="flex justify-between items-center text-xs">
+                    <span className="text-gray-300 truncate">{f.variant?.product?.nombre ?? 'Producto'}</span>
+                    <span className="text-orange-400 font-bold shrink-0 ml-2">{f.cantidad} / {f.stock_minimo}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {ordenesEstancadas.length > 0 && (
+            <div className="bg-[#161b22] rounded-2xl border border-red-500/20 p-4 md:p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2"><Clock size={15} className="text-red-400" /> Órdenes estancadas (+{ORDEN_ESTANCADA_DIAS}d)</h3>
+                <Link to="/ordenes" className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-0.5">Ver todo <ChevronRight size={13} /></Link>
+              </div>
+              <div className="space-y-2">
+                {ordenesEstancadas.map((o) => (
+                  <div key={o.id} className="flex justify-between items-center text-xs">
+                    <span className="text-gray-300 truncate">#{o.numero} · {o.cliente_nombre}</span>
+                    <span className="text-red-400 font-semibold shrink-0 ml-2">{new Date(o.fecha_recepcion).toLocaleDateString('es-PE')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h2 className="font-display font-bold text-white text-base">Ganancias</h2>

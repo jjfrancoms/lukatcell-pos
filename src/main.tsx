@@ -8,4 +8,9 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </StrictMode>,
 )
-// build: 1784577367
+
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {})
+  })
+}

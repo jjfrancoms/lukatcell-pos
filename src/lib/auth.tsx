@@ -25,6 +25,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const cargarStaff = async (userId: string) => {
     const { data } = await supabase.from('staff').select('*').eq('user_id', userId).maybeSingle()
+    if (data && !data.activo) {
+      setStaff(null); setCashSessionId(null)
+      await supabase.auth.signOut()
+      return
+    }
     setStaff(data)
     if (data) await cargarCajaActiva(data.id)
     else setCashSessionId(null)

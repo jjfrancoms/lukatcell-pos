@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react'
-import { Clock, TrendingUp } from 'lucide-react'
+import { Clock, TrendingUp, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useToast } from '../lib/toast'
 import type { CashSession } from '../types'
 
 export default function Caja() {
   const { staff, refreshCashSession } = useAuth()
+  const { showToast } = useToast()
   const [sesionActiva, setSesionActiva] = useState<CashSession | null>(null)
   const [historial, setHistorial] = useState<CashSession[]>([])
   const [montoInicial, setMontoInicial] = useState('')
   const [montoContado, setMontoContado] = useState('')
   const [ventasEfectivo, setVentasEfectivo] = useState(0)
   const [cargando, setCargando] = useState(false)
+  const [confirmandoCierre, setConfirmandoCierre] = useState(false)
 
   const cargarSesion = async () => {
     if (!staff) return
@@ -30,6 +33,9 @@ export default function Caja() {
       .then(({ data }) => setVentasEfectivo((data || []).reduce((s: number, p: any) => s + Number(p.monto), 0)))
   }, [sesionActiva])
 
+  const montoEsperado = sesionActiva ? sesionActiva.monto_inicial + ventasEfectivo : 0
+  const diferenciaPreview = montoContado ? Number(montoContado) - montoEsperado : null
+
   const abrirTurno = async () => {
     if (!staff) return
     setCargando(true)
@@ -37,13 +43,15 @@ export default function Caja() {
     setMontoInicial('')
     await cargarSesion(); await refreshCashSession()
     setCargando(false)
+    showToast('Turno abierto', 'success')
   }
   const cerrarTurno = async () => {
     if (!sesionActiva) return; setCargando(true)
-    await supabase.from('cash_sessions').update({ cierre: new Date().toISOString(), monto_final_esperado: sesionActiva.monto_inicial + ventasEfectivo, monto_final_contado: Number(montoContado) || 0 }).eq('id', sesionActiva.id)
-    setMontoContado(''); setSesionActiva(null)
+    await supabase.from('cash_sessions').update({ cierre: new Date().toISOString(), monto_final_esperado: montoEsperado, monto_final_contado: Number(montoContado) || 0 }).eq('id', sesionActiva.id)
+    setMontoContado(''); setSesionActiva(null); setConfirmandoCierre(false)
     await cargarSesion(); await cargarHistorial(); await refreshCashSession()
     setCargando(false)
+    showToast('Turno cerrado', 'success')
   }
 
   return (
@@ -76,8 +84,24 @@ export default function Caja() {
             </div>
           </div>
           <label className="text-xs text-gray-500 font-semibold">Monto contado al cierre (S/)</label>
-          <input type="number" value={montoContado} onChange={(e) => setMontoContado(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1.5 mb-4 text-white text-lg focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="0.00" />
-          <button onClick={cerrarTurno} disabled={cargando} className="bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold px-6 py-3 rounded-xl hover:shadow-lg hover:shadow-orange-500/30 transition-all">Cerrar turno</button>
+          <input type="number" value={montoContado} onChange={(e) => { setMontoContado(e.target.value); setConfirmandoCierre(false) }}
+            className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1.5 mb-2 text-white text-lg focus:outline-none focus:ring-2 focus:ring-orange-500" placeholder="0.00" />
+          {diferenciaPreview !== null && (
+            <p className={`text-xs mb-4 font-semibold ${diferenciaPreview === 0 ? 'text-gray-500' : diferenciaPreview > 0 ? 'text-green-400' : 'text-red-400'}`}>
+              {diferenciaPreview === 0 ? 'Cuadra exacto' : `Diferencia: ${diferenciaPreview >= 0 ? '+' : ''}S/ ${diferenciaPreview.toFixed(2)}`}
+            </p>
+          )}
+          {!confirmandoCierre ? (
+            <button onClick={() => setConfirmandoCierre(true)} className="bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold px-6 py-3 rounded-xl hover:shadow-lg hover:shadow-orange-500/30 transition-all">Cerrar turno</button>
+          ) : (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4">
+              <p className="text-sm text-orange-300 mb-3 flex items-center gap-2"><AlertTriangle size={15} className="shrink-0" /> Esta acción cierra tu turno y no se puede deshacer. ¿Confirmas?</p>
+              <div className="flex gap-2">
+                <button onClick={() => setConfirmandoCierre(false)} className="flex-1 bg-[#21262d] text-gray-300 font-semibold py-2.5 rounded-xl text-sm">Cancelar</button>
+                <button onClick={cerrarTurno} disabled={cargando} className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold py-2.5 rounded-xl text-sm disabled:opacity-40">{cargando ? 'Cerrando...' : 'Sí, cerrar turno'}</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
       <h2 className="font-display font-bold text-white mt-8 mb-3">Historial</h2>

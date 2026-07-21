@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { AlertTriangle, Search, Plus, Minus, History, X, Package, ArrowUpCircle, ArrowDownCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useToast } from '../lib/toast'
 
 interface FilaInventario {
   variant_id: string; cantidad: number; stock_minimo: number; location_id: string
@@ -16,6 +17,7 @@ interface Movimiento {
 
 export default function Inventario() {
   const { isAdmin } = useAuth()
+  const { showToast } = useToast()
   const [filas, setFilas] = useState<FilaInventario[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [soloStockBajo, setSoloStockBajo] = useState(false)
@@ -38,8 +40,10 @@ export default function Inventario() {
   const guardarCosto = async (productId: string, valor: string) => {
     const costo = Number(valor)
     if (Number.isNaN(costo) || costo < 0) return
-    await supabase.from('products').update({ costo }).eq('id', productId)
+    const { error } = await supabase.from('products').update({ costo }).eq('id', productId)
+    if (error) { showToast('No se pudo guardar el costo', 'error'); return }
     setFilas((fs) => fs.map((f) => f.variant?.product?.id === productId ? { ...f, variant: { ...f.variant, product: { ...f.variant.product, costo } } } : f))
+    showToast('Costo actualizado', 'success')
   }
 
   useEffect(() => { cargar() }, [])
@@ -67,7 +71,7 @@ export default function Inventario() {
     if (!ajusteModal || !ajusteCant) return
     setGuardando(true)
     const delta = ajusteTipo === 'entrada' ? Math.abs(Number(ajusteCant)) : -Math.abs(Number(ajusteCant))
-    await supabase.rpc('ajustar_stock', {
+    const { error } = await supabase.rpc('ajustar_stock', {
       p_variant_id: ajusteModal.variant_id,
       p_location_id: ajusteModal.location_id,
       p_cantidad_delta: delta,
@@ -77,6 +81,7 @@ export default function Inventario() {
     setAjusteModal(null)
     setAjusteCant('')
     await cargar()
+    showToast(error ? 'No se pudo aplicar el ajuste' : 'Stock actualizado', error ? 'error' : 'success')
   }
 
   return (
@@ -156,22 +161,22 @@ export default function Inventario() {
                       <input type="number" min="0" step="0.01"
                         value={costoEdit[productId] ?? costoActual}
                         onChange={(e) => setCostoEdit((c) => ({ ...c, [productId]: e.target.value }))}
-                        onBlur={(e) => guardarCosto(productId, e.target.value)}
+                        onBlur={(e) => { if (Number(e.target.value) !== costoActual) guardarCosto(productId, e.target.value) }}
                         className="w-20 bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1 text-right text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-cyan-500" />
                     </td>
                   )}
                   <td className="px-3 py-3">
                     <div className="flex items-center justify-center gap-1">
                       <button onClick={() => { setAjusteModal(f); setAjusteTipo('entrada') }}
-                        className="p-1.5 rounded-lg bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors" title="Entrada">
+                        className="p-1.5 rounded-lg bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors" title="Entrada" aria-label={`Registrar entrada de stock para ${f.variant?.product?.nombre}`}>
                         <Plus size={14} />
                       </button>
                       <button onClick={() => { setAjusteModal(f); setAjusteTipo('salida') }}
-                        className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Salida">
+                        className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors" title="Salida" aria-label={`Registrar salida de stock para ${f.variant?.product?.nombre}`}>
                         <Minus size={14} />
                       </button>
                       <button onClick={() => abrirHistorial(f)}
-                        className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-colors" title="Historial">
+                        className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-colors" title="Historial" aria-label={`Ver historial de ${f.variant?.product?.nombre}`}>
                         <History size={14} />
                       </button>
                     </div>
@@ -188,7 +193,7 @@ export default function Inventario() {
       {ajusteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
           <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 border border-[#30363d] shadow-2xl relative">
-            <button onClick={() => setAjusteModal(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
+            <button onClick={() => setAjusteModal(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${ajusteTipo === 'entrada' ? 'bg-green-500/15' : 'bg-red-500/15'}`}>
                 {ajusteTipo === 'entrada' ? <ArrowUpCircle size={20} className="text-green-400" /> : <ArrowDownCircle size={20} className="text-red-400" />}
@@ -246,7 +251,7 @@ export default function Inventario() {
       {histModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
           <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[80vh] flex flex-col">
-            <button onClick={() => setHistModal(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
+            <button onClick={() => setHistModal(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
             <h3 className="font-bold text-white mb-1">Historial de movimientos</h3>
             <p className="text-xs text-gray-500 mb-4">{histModal.variant?.product?.nombre} · {histModal.variant?.color || histModal.variant?.product?.sku}</p>
             <div className="overflow-y-auto flex-1 space-y-2">

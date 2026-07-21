@@ -3,6 +3,7 @@ import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Head
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { cacheCatalogo, cacheCategorias, buscarEnCache, getCatalogoCache, queueVenta, useOnlineStatus } from '../lib/offline'
+import { useToast } from '../lib/toast'
 import type { ProductVariant, CartItem, MetodoPago, PagoDetalle, Cliente } from '../types'
 import ReciboVenta from '../components/ReciboVenta'
 
@@ -24,6 +25,7 @@ function mapRow(r: any): ProductVariant {
 export default function Venta() {
   const { staff, cashSessionId } = useAuth()
   const online = useOnlineStatus()
+  const { showToast } = useToast()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductVariant[]>([])
   const [favoritos, setFavoritos] = useState<ProductVariant[]>([])
@@ -85,10 +87,9 @@ export default function Venta() {
     }
   }
 
-  const buscar = useCallback(async (texto: string) => {
-    setQuery(texto); setCatActiva(null)
-    if (texto.length < 2) { setResults([]); return }
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const ejecutarBusqueda = useCallback(async (texto: string) => {
     if (!online) { setResults(await buscarEnCache(texto)); return }
 
     if (/^\d{8,}$/.test(texto)) {
@@ -101,6 +102,13 @@ export default function Venta() {
       setResults((data || []).map(mapRow))
     } catch { setResults(await buscarEnCache(texto)) }
   }, [online])
+
+  const buscar = useCallback((texto: string) => {
+    setQuery(texto); setCatActiva(null)
+    if (searchTimeout.current) clearTimeout(searchTimeout.current)
+    if (texto.length < 2) { setResults([]); return }
+    searchTimeout.current = setTimeout(() => ejecutarBusqueda(texto), 300)
+  }, [ejecutarBusqueda])
 
   const cargarCategoria = async (catId: string) => {
     setCatActiva(catId); setQuery('')
@@ -130,7 +138,13 @@ export default function Venta() {
   }
 
   const updQty = (vid: string, c: number) => { if (c >= 1) setCart((p) => p.map((i) => i.variant.id === vid ? { ...i, cantidad: c } : i)) }
-  const del = (vid: string) => setCart((p) => p.filter((i) => i.variant.id !== vid))
+  const del = (vid: string) => {
+    const item = cart.find((i) => i.variant.id === vid)
+    setCart((p) => p.filter((i) => i.variant.id !== vid))
+    if (item) showToast(`${item.variant.product?.nombre ?? 'Producto'} eliminado`, 'info', {
+      label: 'Deshacer', onClick: () => setCart((p) => p.some((i) => i.variant.id === vid) ? p : [...p, item]),
+    })
+  }
   const applyDisc = (vid: string) => {
     const val = Number(descValor) || 0; if (val <= 0) { setDescItem(null); return }
     setCart((p) => p.map((i) => { if (i.variant.id !== vid) return i; const d = descTipo === 'pct' ? (i.precio_unitario * val / 100) : val; return { ...i, descuento: Math.min(d, i.precio_unitario) } }))
@@ -151,9 +165,15 @@ export default function Venta() {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input ref={searchRef} value={query} onChange={(e) => buscar(e.target.value)}
             onKeyDown={handleSearchKeyDown}
+            aria-label="Buscar producto, SKU o escanear código de barras"
             placeholder="Buscar producto, SKU o escanear código de barras..."
             className="w-full pl-11 pr-4 py-3 rounded-xl bg-[#161b22] border border-[#30363d] text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-sm" />
         </div>
+        <p className="hidden lg:flex items-center gap-3 text-[10px] text-gray-600 -mt-2 mb-3">
+          <span><kbd className="px-1 py-0.5 bg-[#161b22] border border-[#30363d] rounded">F2</kbd> buscar</span>
+          <span><kbd className="px-1 py-0.5 bg-[#161b22] border border-[#30363d] rounded">F4</kbd> cobrar</span>
+          <span><kbd className="px-1 py-0.5 bg-[#161b22] border border-[#30363d] rounded">Esc</kbd> cancelar</span>
+        </p>
         <div className="flex gap-2 mb-3 overflow-x-auto pb-1 scrollbar-hide">
           <button onClick={() => cargarCategoria('all')}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-full text-xs font-semibold whitespace-nowrap transition-all shrink-0 ${catActiva === 'all' ? 'bg-cyan-500 text-black' : 'bg-[#161b22] border border-[#30363d] text-gray-300 hover:border-cyan-500/50'}`}>
@@ -212,7 +232,7 @@ export default function Venta() {
             <h2 className="font-display font-bold text-white text-base">Venta actual</h2>
             <div className="flex items-center gap-2">
               {cart.length > 0 && <span className="bg-cyan-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">{cart.length}</span>}
-              <button onClick={() => setShowCart(false)} className="lg:hidden text-gray-500"><X size={20} /></button>
+              <button onClick={() => setShowCart(false)} className="lg:hidden text-gray-500" aria-label="Cerrar carrito"><X size={20} /></button>
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -227,13 +247,13 @@ export default function Venta() {
                       <p className="text-xs text-gray-500">S/ {item.precio_unitario.toFixed(2)}{item.descuento > 0 && <span className="text-orange-400 ml-1">→ {pf.toFixed(2)}</span>}</p>
                     </div>
                     <div className="flex items-center bg-[#0d1117] rounded-lg border border-[#30363d]">
-                      <button onClick={() => updQty(item.variant.id, item.cantidad - 1)} className="p-1.5 text-gray-400 hover:text-white"><Minus size={14} /></button>
+                      <button onClick={() => updQty(item.variant.id, item.cantidad - 1)} className="p-1.5 text-gray-400 hover:text-white" aria-label="Restar cantidad"><Minus size={14} /></button>
                       <span className="px-1.5 text-white text-sm font-semibold min-w-[24px] text-center">{item.cantidad}</span>
-                      <button onClick={() => updQty(item.variant.id, item.cantidad + 1)} className="p-1.5 text-gray-400 hover:text-white"><Plus size={14} /></button>
+                      <button onClick={() => updQty(item.variant.id, item.cantidad + 1)} className="p-1.5 text-gray-400 hover:text-white" aria-label="Sumar cantidad"><Plus size={14} /></button>
                     </div>
                     <p className="w-14 text-right text-sm font-bold text-cyan-400">{(pf * item.cantidad).toFixed(2)}</p>
-                    <button onClick={() => setDescItem(descItem === item.variant.id ? null : item.variant.id)} className="text-gray-500 hover:text-orange-400"><Percent size={13} /></button>
-                    <button onClick={() => del(item.variant.id)} className="text-gray-500 hover:text-red-400"><Trash2 size={13} /></button>
+                    <button onClick={() => setDescItem(descItem === item.variant.id ? null : item.variant.id)} className="text-gray-500 hover:text-orange-400" aria-label="Aplicar descuento"><Percent size={13} /></button>
+                    <button onClick={() => del(item.variant.id)} className="text-gray-500 hover:text-red-400" aria-label="Eliminar producto"><Trash2 size={13} /></button>
                   </div>
                   {descItem === item.variant.id && (
                     <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[#30363d]">
@@ -270,7 +290,10 @@ export default function Venta() {
           onClose={() => setShowPago(false)}
           onConfirm={(res) => {
             setCart([]); setShowPago(false); setShowCart(false)
-            if (res) setRecibo(res)
+            if (res) {
+              setRecibo(res)
+              if (res.saleId === 'pendiente-sync') showToast('Venta guardada sin conexión, se sincronizará automáticamente', 'info')
+            }
           }} />
       )}
       {recibo && <ReciboVenta {...recibo} onClose={() => setRecibo(null)} />}
@@ -350,7 +373,7 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
       <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 relative border border-[#30363d] shadow-2xl max-h-[92vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-1">Cobrar venta</h3>
         <p className="text-3xl font-bold text-cyan-400 mb-4">S/ {total.toFixed(2)}</p>
 
@@ -359,7 +382,7 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
           {clienteSel ? (
             <div className="flex items-center justify-between bg-cyan-500/10 border border-cyan-500/30 rounded-xl px-3 py-2">
               <span className="flex items-center gap-2 text-sm text-cyan-300"><User size={14} /> {clienteSel.nombre}</span>
-              <button onClick={() => { setClienteSel(null); setClienteQuery('') }} className="text-gray-400 hover:text-white"><X size={14} /></button>
+              <button onClick={() => { setClienteSel(null); setClienteQuery('') }} className="text-gray-400 hover:text-white" aria-label="Quitar cliente seleccionado"><X size={14} /></button>
             </div>
           ) : (
             <div className="relative">

@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Plus, X, Search, Phone, Mail, ShoppingBag, User } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useToast } from '../lib/toast'
 import type { Cliente } from '../types'
 
 interface CompraHistorial { id: string; fecha: string; total: number }
 
 export default function Clientes() {
+  const { showToast } = useToast()
   const [clientes, setClientes] = useState<Cliente[]>([])
   const [busqueda, setBusqueda] = useState('')
   const [nuevoOpen, setNuevoOpen] = useState(false)
@@ -59,8 +61,8 @@ export default function Clientes() {
         )}
       </div>
 
-      {nuevoOpen && <ModalCliente onClose={() => setNuevoOpen(false)} onSaved={() => { setNuevoOpen(false); cargar() }} />}
-      {detalle && <ModalDetalleCliente cliente={detalle} onClose={() => setDetalle(null)} onSaved={() => { setDetalle(null); cargar() }} />}
+      {nuevoOpen && <ModalCliente onClose={() => setNuevoOpen(false)} onSaved={() => { setNuevoOpen(false); cargar(); showToast('Cliente creado', 'success') }} />}
+      {detalle && <ModalDetalleCliente cliente={detalle} onClose={() => setDetalle(null)} onSaved={() => { setDetalle(null); cargar(); showToast('Notas guardadas', 'success') }} />}
     </div>
   )
 }
@@ -85,7 +87,7 @@ function ModalCliente({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
       <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 border border-[#30363d] shadow-2xl relative">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-4">Nuevo cliente</h3>
         <div className="space-y-3">
           <div>
@@ -141,7 +143,7 @@ function ModalDetalleCliente({ cliente, onClose, onSaved }: { cliente: Cliente; 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
       <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto">
-        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white"><X size={20} /></button>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-1">{cliente.nombre}</h3>
         <div className="flex flex-wrap gap-3 text-xs text-gray-500 mb-4">
           {cliente.telefono && <span className="flex items-center gap-1"><Phone size={12} /> {cliente.telefono}</span>}

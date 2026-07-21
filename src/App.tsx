@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { AuthProvider, useAuth } from './lib/auth'
+import { ToastProvider } from './lib/toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Venta from './pages/Venta'
@@ -9,6 +10,7 @@ import Inventario from './pages/Inventario'
 import Reportes from './pages/Reportes'
 import OrdenesServicio from './pages/OrdenesServicio'
 import Clientes from './pages/Clientes'
+import Personal from './pages/Personal'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, staff, loading } = useAuth()
@@ -23,22 +25,31 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useAuth()
+  if (!isAdmin) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<Venta />} />
-            <Route path="caja" element={<Caja />} />
-            <Route path="inventario" element={<Inventario />} />
-            <Route path="ordenes" element={<OrdenesServicio />} />
-            <Route path="clientes" element={<Clientes />} />
-            <Route path="reportes" element={<Reportes />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <ToastProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route index element={<Venta />} />
+              <Route path="caja" element={<Caja />} />
+              <Route path="inventario" element={<Inventario />} />
+              <Route path="ordenes" element={<OrdenesServicio />} />
+              <Route path="clientes" element={<Clientes />} />
+              <Route path="reportes" element={<Reportes />} />
+              <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
   )
 }

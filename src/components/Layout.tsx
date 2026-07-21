@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, ChevronsLeft, ChevronsRight, LogOut, WifiOff } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
-const navItems = [
+const baseNavItems = [
   { to: '/', label: 'Venta', icon: ShoppingCart },
   { to: '/caja', label: 'Caja', icon: Wallet },
   { to: '/inventario', label: 'Inventario', icon: Package },
@@ -16,9 +16,11 @@ const navItems = [
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('lukatcell_sidebar_collapsed') === '1')
-  const { staff, signOut } = useAuth()
+  const { staff, isAdmin, cashSessionId, signOut } = useAuth()
   const online = useOnlineStatus()
   const [pendientes, setPendientes] = useState(0)
+
+  const navItems = isAdmin ? [...baseNavItems, { to: '/personal', label: 'Personal', icon: UserCog }] : baseNavItems
 
   useEffect(() => { localStorage.setItem('lukatcell_sidebar_collapsed', collapsed ? '1' : '0') }, [collapsed])
 
@@ -31,6 +33,13 @@ export default function Layout() {
     })
   }, [online])
 
+  const TurnoBadge = ({ compact }: { compact?: boolean }) => (
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId ? 'text-green-400' : 'text-gray-500'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cashSessionId ? 'bg-green-400' : 'bg-gray-500'}`} />
+      {compact ? (cashSessionId ? 'Turno abierto' : 'Turno cerrado') : (cashSessionId ? 'Turno abierto' : 'Sin turno abierto')}
+    </span>
+  )
+
   return (
     <div className="flex h-screen bg-[#0d1117]">
       {/* Mobile header */}
@@ -39,11 +48,14 @@ export default function Layout() {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center">
             <Smartphone size={14} className="text-black" />
           </div>
-          <span className="font-display font-bold text-sm text-white">LUKATCELL</span>
+          <div>
+            <span className="font-display font-bold text-sm text-white block leading-none">LUKATCELL</span>
+            <TurnoBadge compact />
+          </div>
         </div>
         <div className="flex items-center gap-3">
-          {!online && <WifiOff size={16} className="text-orange-400" />}
-          <button onClick={() => setMenuOpen(!menuOpen)} className="text-gray-400">
+          {!online && <WifiOff size={16} className="text-orange-400" aria-label="Sin conexión" />}
+          <button onClick={() => setMenuOpen(!menuOpen)} className="text-gray-400" aria-label={menuOpen ? 'Cerrar menú' : 'Abrir menú'}>
             {menuOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
         </div>
@@ -80,6 +92,9 @@ export default function Layout() {
             </div>
           )}
         </div>
+        {!collapsed && (
+          <div className="px-4 py-2 border-b border-[#30363d]"><TurnoBadge /></div>
+        )}
         <nav className="flex-1 py-3 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined}
@@ -97,11 +112,11 @@ export default function Layout() {
               <p className="text-[10px] text-gray-500 capitalize">{staff.rol}</p>
             </div>
           )}
-          <button onClick={() => signOut()} title="Cerrar sesión"
+          <button onClick={() => signOut()} title="Cerrar sesión" aria-label="Cerrar sesión"
             className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
             <LogOut size={16} />{!collapsed && <span className="text-xs">Cerrar sesión</span>}
           </button>
-          <button onClick={() => setCollapsed(!collapsed)}
+          <button onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
             className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white hover:bg-[#161b22] transition-all mt-0.5 ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
             {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
             {!collapsed && <span className="text-xs">Colapsar</span>}

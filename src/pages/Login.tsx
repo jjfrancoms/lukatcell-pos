@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Navigate } from 'react-router-dom'
 import { Smartphone, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -61,6 +62,8 @@ export default function Login() {
     }
     setCargando(false)
   }
+
+  if (session && staff) return <Navigate to="/" replace />
 
   if (session && !staff) {
     return (

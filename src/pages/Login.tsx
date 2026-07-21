@@ -3,13 +3,14 @@ import { Smartphone, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 
-const PENDING_NOMBRE_KEY = 'lukatcell_pending_admin_nombre'
+const PENDING_KEY = 'lukatcell_pending_admin'
 
 export default function Login() {
   const { session, staff, signIn, refreshStaff } = useAuth()
   const [hayStaff, setHayStaff] = useState<boolean | null>(null)
   const [modo, setModo] = useState<'login' | 'signup'>('login')
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
+  const [correo, setCorreo] = useState('')
   const [password, setPassword] = useState('')
   const [nombre, setNombre] = useState('')
   const [error, setError] = useState('')
@@ -27,10 +28,12 @@ export default function Login() {
       const { data: existe } = await supabase.rpc('hay_staff')
       if (existe) return
       setBootstrapping(true)
-      const nombrePendiente = localStorage.getItem(PENDING_NOMBRE_KEY) || session.user.email?.split('@')[0] || 'Administrador'
-      const { error: rpcError } = await supabase.rpc('crear_primer_admin', { p_nombre: nombrePendiente })
+      const pendiente = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null')
+      const nombrePendiente = pendiente?.nombre || 'Administrador'
+      const usernamePendiente = pendiente?.username || session.user.email?.split('@')[0] || 'admin'
+      const { error: rpcError } = await supabase.rpc('crear_primer_admin', { p_nombre: nombrePendiente, p_username: usernamePendiente })
       if (!rpcError) {
-        localStorage.removeItem(PENDING_NOMBRE_KEY)
+        localStorage.removeItem(PENDING_KEY)
         await refreshStaff()
       }
       setBootstrapping(false)
@@ -40,18 +43,20 @@ export default function Login() {
 
   const submitLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setCargando(true)
+    const { data: email } = await supabase.rpc('email_por_username', { p_username: username.trim() })
+    if (!email) { setError('Usuario o contraseña incorrectos'); setCargando(false); return }
     const err = await signIn(email, password)
-    if (err) setError(err)
+    if (err) setError('Usuario o contraseña incorrectos')
     setCargando(false)
   }
 
   const submitSignup = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setInfo(''); setCargando(true)
-    localStorage.setItem(PENDING_NOMBRE_KEY, nombre || 'Administrador')
-    const { data, error: signErr } = await supabase.auth.signUp({ email, password })
+    localStorage.setItem(PENDING_KEY, JSON.stringify({ nombre: nombre || 'Administrador', username: username.trim() }))
+    const { data, error: signErr } = await supabase.auth.signUp({ email: correo, password })
     if (signErr) { setError(signErr.message); setCargando(false); return }
     if (!data.session) {
-      setInfo('Cuenta creada. Revisa tu correo para confirmar el acceso y luego inicia sesión aquí.')
+      setInfo('Cuenta creada. Revisa tu correo para confirmar el acceso y luego inicia sesión aquí con tu usuario.')
       setModo('login')
     }
     setCargando(false)
@@ -88,30 +93,53 @@ export default function Login() {
 
         {info && <p className="text-cyan-400 text-xs mb-4 bg-cyan-500/10 rounded-lg p-2.5">{info}</p>}
 
-        <form onSubmit={modo === 'login' ? submitLogin : submitSignup} className="space-y-3">
-          {modo === 'signup' && (
+        {modo === 'login' ? (
+          <form onSubmit={submitLogin} className="space-y-3">
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Usuario</label>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} required autoFocus
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="admin" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Contraseña</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="••••••••" />
+            </div>
+            {error && <p className="text-red-400 text-xs bg-red-500/10 rounded-lg p-2.5">{error}</p>}
+            <button type="submit" disabled={cargando}
+              className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] mt-1">
+              {cargando ? 'Procesando...' : 'Ingresar'}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitSignup} className="space-y-3">
             <div>
               <label className="text-xs text-gray-500 font-semibold">Tu nombre</label>
               <input value={nombre} onChange={(e) => setNombre(e.target.value)} required
                 className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Juan Franco" />
             </div>
-          )}
-          <div>
-            <label className="text-xs text-gray-500 font-semibold">Correo</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="tu@correo.com" />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 font-semibold">Contraseña</label>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6}
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="••••••••" />
-          </div>
-          {error && <p className="text-red-400 text-xs bg-red-500/10 rounded-lg p-2.5">{error}</p>}
-          <button type="submit" disabled={cargando}
-            className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] mt-1">
-            {cargando ? 'Procesando...' : modo === 'login' ? 'Ingresar' : 'Crear cuenta de administrador'}
-          </button>
-        </form>
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Usuario (con el que vas a iniciar sesión)</label>
+              <input value={username} onChange={(e) => setUsername(e.target.value.replace(/\s/g, ''))} required
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="admin" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Correo (solo para recuperar acceso, no se usa para iniciar sesión)</label>
+              <input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} required
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="tu@correo.com" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Contraseña</label>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-3 mt-1 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="••••••••" />
+            </div>
+            {error && <p className="text-red-400 text-xs bg-red-500/10 rounded-lg p-2.5">{error}</p>}
+            <button type="submit" disabled={cargando}
+              className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3.5 rounded-xl transition-all active:scale-[0.98] mt-1">
+              {cargando ? 'Procesando...' : 'Crear cuenta de administrador'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   )

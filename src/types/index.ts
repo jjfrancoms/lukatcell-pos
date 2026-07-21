@@ -54,6 +54,7 @@ export interface Staff {
   rol: 'cajero' | 'administrador'
   location_id: string
   activo: boolean
+  username: string
 }
 
 export type MetodoPago = 'efectivo' | 'tarjeta' | 'yape' | 'plin'

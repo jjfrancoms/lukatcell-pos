@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { AlertTriangle, Search, Package } from 'lucide-react'
+import { AlertTriangle, Search } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 interface FilaInventario { variant_id: string; cantidad: number; stock_minimo: number; variant: { id: string; color: string | null; codigo_barras: string | null; product: { nombre: string; sku: string | null }; modelo: { marca: string; modelo: string } | null } }

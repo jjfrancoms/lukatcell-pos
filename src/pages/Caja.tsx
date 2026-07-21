@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Clock, DollarSign, TrendingUp } from 'lucide-react'
+import { Clock, TrendingUp } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { CashSession } from '../types'
 

@@ -188,15 +188,23 @@ export default function Venta() {
           })}
         </div>
         {!query && !catActiva && favoritos.length > 0 && <p className="text-xs font-bold text-cyan-500 uppercase tracking-widest mb-2">⚡ Más vendidos</p>}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 gap-2 md:gap-3 overflow-y-auto flex-1 pb-20 lg:pb-0">
-          {loading && <p className="text-gray-500 text-sm col-span-full py-12 text-center">Cargando...</p>}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2 md:gap-3 overflow-y-auto flex-1 pb-24 lg:pb-2 content-start">
+          {loading && Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="rounded-xl border border-[#30363d] overflow-hidden animate-pulse">
+              <div className="h-28 sm:h-32 w-full bg-[#161b22]" />
+              <div className="p-2 md:p-3 space-y-1.5">
+                <div className="h-3 bg-[#161b22] rounded w-3/4" />
+                <div className="h-2.5 bg-[#161b22] rounded w-1/2" />
+              </div>
+            </div>
+          ))}
           {!loading && items.map((v) => {
             const img = (v.product as any)?.imagen_url
             const precio = v.precio_override ?? (v.product as any)?.precio_base ?? 0
             return (
               <button key={v.id} onClick={() => agregarAlCarrito(v)}
                 className="group text-left bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/10 transition-all active:scale-[0.98]">
-                <div className="h-24 sm:h-32 w-full bg-[#21262d] overflow-hidden relative">
+                <div className="h-28 sm:h-32 w-full bg-[#21262d] overflow-hidden relative">
                   {img ? (
                     <img src={img} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy"
                       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }} />
@@ -219,15 +227,16 @@ export default function Venta() {
       {/* Mobile cart toggle */}
       {cart.length > 0 && !showCart && (
         <button onClick={() => setShowCart(true)}
-          className="lg:hidden fixed bottom-4 left-4 right-4 z-20 bg-gradient-to-r from-cyan-500 to-cyan-600 text-black font-bold py-3.5 rounded-xl flex items-center justify-between px-5 shadow-xl shadow-cyan-500/30 active:scale-[0.98]">
+          style={{ bottom: 'max(1rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}
+          className="lg:hidden fixed left-4 right-4 z-20 bg-gradient-to-r from-cyan-500 to-cyan-600 text-black font-bold py-3.5 rounded-xl flex items-center justify-between px-5 shadow-xl shadow-cyan-500/30 active:scale-[0.98]">
           <span className="flex items-center gap-2"><ShoppingBag size={18} /> {cart.length} items</span>
           <span>S/ {total.toFixed(2)} <ChevronUp size={16} className="inline" /></span>
         </button>
       )}
 
       {/* Cart panel */}
-      <div className={`${showCart ? 'fixed inset-0 z-30 bg-black/60 lg:relative lg:bg-transparent' : 'hidden lg:flex'} lg:w-[360px]`}>
-        <div className={`${showCart ? 'absolute bottom-0 left-0 right-0 max-h-[85vh] lg:relative lg:max-h-none' : ''} w-full lg:w-[360px] bg-[#161b22] border-l border-[#30363d] flex flex-col shrink-0 rounded-t-2xl lg:rounded-none`}>
+      <div className={`${showCart ? 'fixed inset-0 z-30 bg-black/60 lg:relative lg:bg-transparent' : 'hidden lg:flex'} lg:w-[320px] xl:w-[360px] 2xl:w-[400px]`}>
+        <div className={`${showCart ? 'absolute bottom-0 left-0 right-0 max-h-[85vh] lg:relative lg:max-h-none' : ''} w-full lg:w-[320px] xl:w-[360px] 2xl:w-[400px] bg-[#161b22] border-l border-[#30363d] flex flex-col shrink-0 rounded-t-2xl lg:rounded-none`}>
           <div className="p-4 border-b border-[#30363d] flex items-center justify-between">
             <h2 className="font-display font-bold text-white text-base">Venta actual</h2>
             <div className="flex items-center gap-2">
@@ -271,7 +280,7 @@ export default function Venta() {
               )
             })}
           </div>
-          <div className="p-3 border-t border-[#30363d] space-y-1">
+          <div className="p-3 border-t border-[#30363d] space-y-1" style={{ paddingBottom: 'max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
             {totalDesc > 0 && <div className="flex justify-between text-sm"><span className="text-orange-400">Descuento</span><span className="text-orange-400 font-semibold">-S/ {totalDesc.toFixed(2)}</span></div>}
             <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotal</span><span className="text-gray-300">S/ {subtotal.toFixed(2)}</span></div>
             <div className="flex justify-between text-sm"><span className="text-gray-500">IGV (18%)</span><span className="text-gray-300">S/ {impuesto.toFixed(2)}</span></div>

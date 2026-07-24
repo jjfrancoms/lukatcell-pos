@@ -68,7 +68,7 @@ export default function OrdenesServicio() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
         {loading && <p className="text-gray-500 text-sm col-span-full py-10 text-center">Cargando...</p>}
         {!loading && filtradas.map((o) => {
           const est = ESTADOS.find((e) => e.value === o.estado)

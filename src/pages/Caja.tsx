@@ -55,7 +55,7 @@ export default function Caja() {
   }
 
   return (
-    <div className="p-5 max-w-3xl">
+    <div className="p-3 md:p-5 max-w-3xl">
       <h1 className="font-display font-bold text-xl text-white mb-5">Control de caja</h1>
       {!sesionActiva ? (
         <div className="bg-[#161b22] rounded-2xl border border-[#30363d] p-6">

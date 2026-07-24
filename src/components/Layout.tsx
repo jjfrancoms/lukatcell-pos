@@ -15,7 +15,11 @@ const baseNavItems = [
 
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('lukatcell_sidebar_collapsed') === '1')
+  const [collapsed, setCollapsed] = useState(() => {
+    const stored = localStorage.getItem('lukatcell_sidebar_collapsed')
+    if (stored !== null) return stored === '1'
+    return window.innerWidth < 1024
+  })
   const { staff, isAdmin, cashSessionId, signOut } = useAuth()
   const online = useOnlineStatus()
   const [pendientes, setPendientes] = useState(0)
@@ -43,7 +47,8 @@ export default function Layout() {
   return (
     <div className="flex h-screen bg-[#0d1117]">
       {/* Mobile header */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 py-3">
+      <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 pb-3"
+        style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center">
             <Smartphone size={14} className="text-black" />
@@ -63,7 +68,8 @@ export default function Layout() {
       {/* Mobile menu overlay */}
       {menuOpen && (
         <div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={() => setMenuOpen(false)}>
-          <nav className="absolute top-14 left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}>
             {navItems.map(({ to, label, icon: Icon }) => (
               <NavLink key={to} to={to} end={to === '/'} onClick={() => setMenuOpen(false)}
                 className={({ isActive }) =>
@@ -123,7 +129,7 @@ export default function Layout() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto pt-14 md:pt-0 flex flex-col">
+      <main className="flex-1 overflow-y-auto mobile-header-pad flex flex-col">
         {!online && (
           <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
             <WifiOff size={13} /> Sin conexión — las ventas se guardarán y sincronizarán al reconectar

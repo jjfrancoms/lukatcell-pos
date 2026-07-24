@@ -29,6 +29,14 @@ input[type="number"] { -moz-appearance: textfield; }
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
+:root { --mobile-header-h: calc(3.375rem + env(safe-area-inset-top)); }
+
+.mobile-header-pad { padding-top: var(--mobile-header-h); }
+.mobile-header-offset { top: var(--mobile-header-h); }
+@media (min-width: 768px) {
+  .mobile-header-pad { padding-top: 0; }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }

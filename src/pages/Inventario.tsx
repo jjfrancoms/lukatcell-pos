@@ -113,8 +113,68 @@ export default function Inventario() {
         </button>
       </div>
 
-      {/* Tabla responsive */}
-      <div className="bg-[#161b22] rounded-2xl border border-[#30363d] overflow-x-auto">
+      {/* Tarjetas — móvil/tablet */}
+      <div className="md:hidden space-y-2">
+        {filtradas.map((f) => {
+          const img = f.variant?.product?.imagen_url
+          const productId = f.variant?.product?.id
+          const costoActual = f.variant?.product?.costo ?? 0
+          const bajo = f.cantidad <= f.stock_minimo
+          return (
+            <div key={f.variant_id} className="bg-[#161b22] rounded-2xl border border-[#30363d] p-3">
+              <div className="flex items-center gap-3">
+                {img ? (
+                  <img src={img} alt="" className="w-11 h-11 rounded-lg object-cover shrink-0 bg-[#21262d]"
+                    onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                ) : (
+                  <div className="w-11 h-11 rounded-lg bg-[#21262d] flex items-center justify-center shrink-0"><Package size={18} className="text-gray-600" /></div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-white text-sm truncate">{f.variant?.product?.nombre}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {f.variant?.product?.sku}{[f.variant?.color, f.variant?.modelo && `${f.variant.modelo.marca} ${f.variant.modelo.modelo}`].filter(Boolean).length > 0 && ` · ${[f.variant?.color, f.variant?.modelo && `${f.variant.modelo.marca} ${f.variant.modelo.modelo}`].filter(Boolean).join(' · ')}`}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className={`font-bold text-lg leading-none ${bajo ? 'text-orange-400' : f.cantidad > 15 ? 'text-green-400' : 'text-white'}`}>{f.cantidad}</p>
+                  <p className="text-[10px] text-gray-600 mt-0.5">mín {f.stock_minimo}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-3 pt-3 border-t border-[#30363d]">
+                <code className="text-[11px] text-gray-500 bg-[#0d1117] px-2 py-1 rounded truncate max-w-[40%]">{f.variant?.codigo_barras || '—'}</code>
+                {isAdmin && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    <span>Costo S/</span>
+                    <input type="number" min="0" step="0.01"
+                      value={costoEdit[productId] ?? costoActual}
+                      onChange={(e) => setCostoEdit((c) => ({ ...c, [productId]: e.target.value }))}
+                      onBlur={(e) => { if (Number(e.target.value) !== costoActual) guardarCosto(productId, e.target.value) }}
+                      className="w-16 bg-[#0d1117] border border-[#30363d] rounded-lg px-2 py-1 text-right text-xs text-gray-300 focus:outline-none focus:ring-1 focus:ring-cyan-500" />
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <button onClick={() => { setAjusteModal(f); setAjusteTipo('entrada') }}
+                    className="p-2 rounded-lg bg-green-500/10 text-green-400 active:bg-green-500/20" aria-label={`Registrar entrada de stock para ${f.variant?.product?.nombre}`}>
+                    <Plus size={16} />
+                  </button>
+                  <button onClick={() => { setAjusteModal(f); setAjusteTipo('salida') }}
+                    className="p-2 rounded-lg bg-red-500/10 text-red-400 active:bg-red-500/20" aria-label={`Registrar salida de stock para ${f.variant?.product?.nombre}`}>
+                    <Minus size={16} />
+                  </button>
+                  <button onClick={() => abrirHistorial(f)}
+                    className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 active:bg-cyan-500/20" aria-label={`Ver historial de ${f.variant?.product?.nombre}`}>
+                    <History size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+        {filtradas.length === 0 && <p className="py-10 text-center text-gray-500 bg-[#161b22] rounded-2xl border border-[#30363d]">Sin resultados</p>}
+      </div>
+
+      {/* Tabla — escritorio */}
+      <div className="hidden md:block bg-[#161b22] rounded-2xl border border-[#30363d] overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
           <thead><tr className="border-b border-[#30363d]">
             <th className="text-left px-4 py-3 text-xs text-gray-500 uppercase">Producto</th>

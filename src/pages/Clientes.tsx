@@ -39,7 +39,7 @@ export default function Clientes() {
           className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-[#161b22] border border-[#30363d] text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
         {loading && <p className="text-gray-500 text-sm col-span-full py-10 text-center">Cargando...</p>}
         {!loading && filtrados.map((c) => (
           <button key={c.id} onClick={() => setDetalle(c)}

@@ -193,7 +193,20 @@ export default function Reportes() {
         </div>
       </div>
 
-      <div className="bg-[#161b22] rounded-2xl border border-[#30363d] overflow-x-auto">
+      <div className="md:hidden space-y-2">
+        {ventas.map((v) => (
+          <div key={v.id} className="bg-[#161b22] rounded-xl border border-[#30363d] p-3 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-sm text-gray-300 truncate">{new Date(v.fecha).toLocaleString('es-PE')}</p>
+              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${v.estado === 'completada' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>{v.estado}</span>
+            </div>
+            <p className="font-bold text-white shrink-0">S/ {Number(v.total).toFixed(2)}</p>
+          </div>
+        ))}
+        {ventas.length === 0 && <p className="py-10 text-center text-gray-500 bg-[#161b22] rounded-2xl border border-[#30363d]">Sin ventas registradas</p>}
+      </div>
+
+      <div className="hidden md:block bg-[#161b22] rounded-2xl border border-[#30363d] overflow-x-auto">
         <table className="w-full text-sm min-w-[420px]">
           <thead><tr className="border-b border-[#30363d]">
             <th className="text-left px-4 py-3 text-xs text-gray-500 uppercase">Fecha</th>

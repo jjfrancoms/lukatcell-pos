@@ -160,7 +160,7 @@ export default function Venta() {
   return (
     <div className="h-full flex flex-col lg:flex-row relative">
       {/* Panel productos */}
-      <div className="flex-1 p-3 md:p-5 flex flex-col min-h-0">
+      <div className="flex-1 min-w-0 p-3 md:p-5 flex flex-col min-h-0">
         <div className="relative mb-3">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input ref={searchRef} value={query} onChange={(e) => buscar(e.target.value)}
@@ -203,7 +203,7 @@ export default function Venta() {
             const precio = v.precio_override ?? (v.product as any)?.precio_base ?? 0
             return (
               <button key={v.id} onClick={() => agregarAlCarrito(v)}
-                className="group text-left bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/10 transition-all active:scale-[0.98]">
+                className="group text-left min-w-0 bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/10 transition-all active:scale-[0.98]">
                 <div className="h-28 sm:h-32 w-full bg-[#21262d] overflow-hidden relative">
                   {img ? (
                     <img src={img} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy"

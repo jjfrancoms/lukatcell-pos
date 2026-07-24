@@ -129,7 +129,7 @@ export default function Layout() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">
+      <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">
         {!online && (
           <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
             <WifiOff size={13} /> Sin conexión — las ventas se guardarán y sincronizarán al reconectar
@@ -140,7 +140,7 @@ export default function Layout() {
             Sincronizando {pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'}...
           </div>
         )}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-w-0 min-h-0">
           <Outlet />
         </div>
       </main>

@@ -142,7 +142,7 @@ function ModalDetalleCliente({ cliente, onClose, onSaved }: { cliente: Cliente; 
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
-      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-1">{cliente.nombre}</h3>
         <div className="flex flex-wrap gap-3 text-xs text-gray-500 mb-4">
@@ -163,7 +163,7 @@ function ModalDetalleCliente({ cliente, onClose, onSaved }: { cliente: Cliente; 
             className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none" />
         </div>
         <p className="text-xs text-gray-500 font-semibold mb-2 flex items-center gap-1.5"><ShoppingBag size={13} /> Historial de compras</p>
-        <div className="space-y-1.5 mb-4 max-h-48 overflow-y-auto">
+        <div className="space-y-1.5 mb-4 max-h-48 overflow-y-auto overflow-x-hidden">
           {historial.map((h) => (
             <div key={h.id} className="flex justify-between items-center bg-[#0d1117] rounded-lg px-3 py-2 border border-[#30363d]">
               <span className="text-xs text-gray-400">{new Date(h.fecha).toLocaleDateString('es-PE')}</span>

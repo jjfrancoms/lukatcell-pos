@@ -141,7 +141,7 @@ function ModalNuevaOrden({ locationId, onClose, onCreated }: { locationId: strin
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
-      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-4">Nueva orden de servicio</h3>
         <div className="space-y-3">
@@ -207,7 +207,7 @@ function ModalDetalleOrden({ orden, onClose, onUpdated, onImprimir }: { orden: O
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
-      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-1">Orden #{orden.numero}</h3>
         <p className="text-sm text-gray-400 mb-4">{orden.cliente_nombre} {orden.cliente_telefono && `· ${orden.cliente_telefono}`}</p>

@@ -17,7 +17,7 @@ export default function ReciboVenta({ saleId, fecha, cart, subtotal, impuesto, t
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
       <div className="no-print absolute inset-0" onClick={onClose} />
-      <div className="relative bg-white text-black rounded-2xl max-w-xs w-full max-h-[85vh] overflow-y-auto shadow-2xl">
+      <div className="relative bg-white text-black rounded-2xl max-w-xs w-full max-h-[85vh] overflow-y-auto overflow-x-hidden shadow-2xl">
         <div className="print-area p-4 font-mono text-[11px] leading-snug">
           <div className="text-center mb-2">
             <p className="font-bold text-sm">LUKATCELL</p>

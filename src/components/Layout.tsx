@@ -68,7 +68,7 @@ export default function Layout() {
       {/* Mobile menu overlay */}
       {menuOpen && (
         <div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={() => setMenuOpen(false)}>
-          <nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto"
+          <nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto overflow-x-hidden"
             onClick={(e) => e.stopPropagation()}>
             {navItems.map(({ to, label, icon: Icon }) => (
               <NavLink key={to} to={to} end={to === '/'} onClick={() => setMenuOpen(false)}
@@ -101,7 +101,7 @@ export default function Layout() {
         {!collapsed && (
           <div className="px-4 py-2 border-b border-[#30363d]"><TurnoBadge /></div>
         )}
-        <nav className="flex-1 py-3 overflow-y-auto">
+        <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined}
               className={({ isActive }) =>
@@ -129,7 +129,7 @@ export default function Layout() {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto mobile-header-pad flex flex-col">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">
         {!online && (
           <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
             <WifiOff size={13} /> Sin conexión — las ventas se guardarán y sincronizarán al reconectar

@@ -188,7 +188,7 @@ export default function Venta() {
           })}
         </div>
         {!query && !catActiva && favoritos.length > 0 && <p className="text-xs font-bold text-cyan-500 uppercase tracking-widest mb-2">⚡ Más vendidos</p>}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2 md:gap-3 overflow-y-auto flex-1 pb-24 lg:pb-2 content-start">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2 md:gap-3 overflow-y-auto overflow-x-hidden flex-1 pb-24 lg:pb-2 content-start">
           {loading && Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="rounded-xl border border-[#30363d] overflow-hidden animate-pulse">
               <div className="h-28 sm:h-32 w-full bg-[#161b22]" />
@@ -244,7 +244,7 @@ export default function Venta() {
               <button onClick={() => setShowCart(false)} className="lg:hidden text-gray-500" aria-label="Cerrar carrito"><X size={20} /></button>
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2">
             {cart.length === 0 && <div className="text-center mt-8"><ShoppingBag size={36} className="text-gray-600 mx-auto mb-2" /><p className="text-gray-500 text-sm">Agrega productos</p></div>}
             {cart.map((item) => {
               const pf = item.precio_unitario - item.descuento
@@ -381,7 +381,7 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
-      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 relative border border-[#30363d] shadow-2xl max-h-[92vh] overflow-y-auto">
+      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 relative border border-[#30363d] shadow-2xl max-h-[92vh] overflow-y-auto overflow-x-hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-1">Cobrar venta</h3>
         <p className="text-3xl font-bold text-cyan-400 mb-4">S/ {total.toFixed(2)}</p>
@@ -399,7 +399,7 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
               <input value={clienteQuery} onChange={(e) => buscarCliente(e.target.value)} placeholder="Cliente (opcional)"
                 className="w-full pl-8 pr-3 py-2 rounded-lg bg-[#0d1117] border border-[#30363d] text-white text-xs placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
               {clienteOpts.length > 0 && (
-                <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-[#21262d] border border-[#30363d] rounded-lg overflow-hidden max-h-32 overflow-y-auto">
+                <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-[#21262d] border border-[#30363d] rounded-lg overflow-hidden max-h-32 overflow-y-auto overflow-x-hidden">
                   {clienteOpts.map((c) => (
                     <button key={c.id} onClick={() => { setClienteSel(c); setClienteOpts([]) }}
                       className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-cyan-500/10">{c.nombre} {c.telefono && `· ${c.telefono}`}</button>

@@ -105,7 +105,7 @@ function ModalNuevoPersonal({ onClose, onCreated }: { onClose: () => void; onCre
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">
-      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-sm p-5 border border-[#30363d] shadow-2xl relative max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
         <h3 className="font-display font-bold text-lg text-white mb-4">Nuevo personal</h3>
         <div className="space-y-3">

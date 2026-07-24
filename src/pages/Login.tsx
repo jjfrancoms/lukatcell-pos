@@ -77,7 +77,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#0d1117] p-4 py-8 overflow-y-auto">
+    <div className="min-h-screen flex items-center justify-center bg-[#0d1117] p-4 py-8 overflow-y-auto overflow-x-hidden">
       <div className="w-full max-w-sm bg-[#161b22] border border-[#30363d] rounded-2xl p-6 shadow-2xl my-auto">
         <div className="flex flex-col items-center mb-6">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center shadow-lg shadow-cyan-500/20 mb-3">

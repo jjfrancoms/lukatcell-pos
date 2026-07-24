@@ -314,7 +314,7 @@ export default function Inventario() {
             <button onClick={() => setHistModal(null)} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
             <h3 className="font-bold text-white mb-1">Historial de movimientos</h3>
             <p className="text-xs text-gray-500 mb-4">{histModal.variant?.product?.nombre} · {histModal.variant?.color || histModal.variant?.product?.sku}</p>
-            <div className="overflow-y-auto flex-1 space-y-2">
+            <div className="overflow-y-auto overflow-x-hidden flex-1 space-y-2">
               {movimientos.map((m) => (
                 <div key={m.id} className="flex items-center justify-between bg-[#21262d] rounded-lg p-3 border border-[#30363d]">
                   <div>

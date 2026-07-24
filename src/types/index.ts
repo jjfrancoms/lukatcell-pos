@@ -76,6 +76,17 @@ export interface Cliente {
 
 export type EstadoOrden = 'recibido' | 'diagnosticado' | 'en_reparacion' | 'listo' | 'entregado' | 'cancelado'
 
+export interface Configuracion {
+  id: number
+  igv_activo: boolean
+  igv_porcentaje: number
+  negocio_nombre: string
+  negocio_ruc: string | null
+  negocio_direccion: string | null
+  stock_minimo_default: number
+  updated_at: string
+}
+
 export interface OrdenServicio {
   id: string
   numero: number

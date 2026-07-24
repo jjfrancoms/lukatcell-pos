@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
@@ -24,7 +24,9 @@ export default function Layout() {
   const online = useOnlineStatus()
   const [pendientes, setPendientes] = useState(0)
 
-  const navItems = isAdmin ? [...baseNavItems, { to: '/personal', label: 'Personal', icon: UserCog }] : baseNavItems
+  const navItems = isAdmin
+    ? [...baseNavItems, { to: '/personal', label: 'Personal', icon: UserCog }, { to: '/configuracion', label: 'Configuración', icon: Settings }]
+    : baseNavItems
 
   useEffect(() => { localStorage.setItem('lukatcell_sidebar_collapsed', collapsed ? '1' : '0') }, [collapsed])
 

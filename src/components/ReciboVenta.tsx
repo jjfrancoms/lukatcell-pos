@@ -1,4 +1,5 @@
 import { Printer, X } from 'lucide-react'
+import { useConfig } from '../lib/config'
 import type { CartItem, PagoDetalle } from '../types'
 
 interface Props {
@@ -14,14 +15,16 @@ interface Props {
 }
 
 export default function ReciboVenta({ saleId, fecha, cart, subtotal, impuesto, total, pagos, clienteNombre, onClose }: Props) {
+  const { config } = useConfig()
   return (
     <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
       <div className="no-print absolute inset-0" onClick={onClose} />
       <div className="relative bg-white text-black rounded-2xl max-w-xs w-full max-h-[85vh] overflow-y-auto overflow-x-hidden shadow-2xl">
         <div className="print-area p-4 font-mono text-[11px] leading-snug">
           <div className="text-center mb-2">
-            <p className="font-bold text-sm">LUKATCELL</p>
-            <p>Cases, micas, accesorios y reparación técnica</p>
+            <p className="font-bold text-sm">{config.negocio_nombre}</p>
+            {config.negocio_ruc && <p>RUC: {config.negocio_ruc}</p>}
+            {config.negocio_direccion && <p>{config.negocio_direccion}</p>}
             <p>{new Date(fecha).toLocaleString('es-PE')}</p>
             <p>Boleta #{saleId.slice(0, 8).toUpperCase()}</p>
           </div>
@@ -38,7 +41,7 @@ export default function ReciboVenta({ saleId, fecha, cart, subtotal, impuesto, t
             })}
           </div>
           <div className="flex justify-between"><span>Subtotal</span><span>S/ {subtotal.toFixed(2)}</span></div>
-          <div className="flex justify-between"><span>IGV (18%)</span><span>S/ {impuesto.toFixed(2)}</span></div>
+          {config.igv_activo && <div className="flex justify-between"><span>IGV ({config.igv_porcentaje}%)</span><span>S/ {impuesto.toFixed(2)}</span></div>}
           <div className="flex justify-between font-bold text-sm border-t border-black mt-1 pt-1"><span>TOTAL</span><span>S/ {total.toFixed(2)}</span></div>
           <div className="mt-2 pt-1.5 border-t border-dashed border-black">
             {pagos.map((p, idx) => (

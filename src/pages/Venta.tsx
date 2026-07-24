@@ -2,12 +2,12 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid, Percent, ShoppingBag, Plus, Minus, ChevronUp, UserPlus, User } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useConfig } from '../lib/config'
 import { cacheCatalogo, cacheCategorias, buscarEnCache, getCatalogoCache, queueVenta, useOnlineStatus } from '../lib/offline'
 import { useToast } from '../lib/toast'
 import type { ProductVariant, CartItem, MetodoPago, PagoDetalle, Cliente } from '../types'
 import ReciboVenta from '../components/ReciboVenta'
 
-const IGV = 0.18
 interface Categoria { id: string; nombre: string }
 const catIcons: Record<string, any> = {
   'Fundas': Smartphone, 'Cables': Cable, 'Audífonos': Headphones,
@@ -24,8 +24,10 @@ function mapRow(r: any): ProductVariant {
 
 export default function Venta() {
   const { staff, cashSessionId } = useAuth()
+  const { config } = useConfig()
   const online = useOnlineStatus()
   const { showToast } = useToast()
+  const IGV = config.igv_activo ? config.igv_porcentaje / 100 : 0
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<ProductVariant[]>([])
   const [favoritos, setFavoritos] = useState<ProductVariant[]>([])
@@ -283,7 +285,7 @@ export default function Venta() {
           <div className="p-3 border-t border-[#30363d] space-y-1" style={{ paddingBottom: 'max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
             {totalDesc > 0 && <div className="flex justify-between text-sm"><span className="text-orange-400">Descuento</span><span className="text-orange-400 font-semibold">-S/ {totalDesc.toFixed(2)}</span></div>}
             <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotal</span><span className="text-gray-300">S/ {subtotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-gray-500">IGV (18%)</span><span className="text-gray-300">S/ {impuesto.toFixed(2)}</span></div>
+            {config.igv_activo && <div className="flex justify-between text-sm"><span className="text-gray-500">IGV ({config.igv_porcentaje}%)</span><span className="text-gray-300">S/ {impuesto.toFixed(2)}</span></div>}
             <div className="flex justify-between text-lg font-bold pt-2 border-t border-[#30363d]"><span className="text-white">Total</span><span className="text-cyan-400">S/ {total.toFixed(2)}</span></div>
             <button disabled={cart.length === 0} onClick={() => { setShowPago(true); setShowCart(false) }}
               className="w-full mt-2 bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:from-[#21262d] disabled:to-[#21262d] disabled:text-gray-600 text-black font-bold py-3 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-sm active:scale-[0.98]">

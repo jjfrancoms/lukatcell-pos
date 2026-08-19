@@ -337,7 +337,7 @@ export default function Venta() {
 
       {showPago && (
         <ModalPago total={total} subtotal={subtotal} impuesto={impuesto} cart={cart} online={online}
-          nubefactActivo={config.nubefact_activo} culqiActivo={config.culqi_activo}
+          nubefactActivo={config.nubefact_activo} culqiActivo={config.culqi_activo} permitirVincularOrden
           locationId={staff?.location_id ?? null} cajeroId={staff?.id ?? null} cashSessionId={cashSessionId}
           onClose={() => setShowPago(false)}
           onConfirm={(res) => {

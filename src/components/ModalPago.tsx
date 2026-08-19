@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
-import { X, UserPlus, User, Trash2, Plus } from 'lucide-react'
+import { X, UserPlus, User, Trash2, Plus, Wrench } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { queueVenta, registrarVenta as registrarVentaRPC, ErrorRegistroVenta } from '../lib/offline'
 import { calcularVuelto, sumarMontos, restarMontos } from '../lib/money'
-import type { CartItem, MetodoPago, PagoDetalle, Cliente, Sale, TipoComprobante, TipoDocumentoCliente } from '../types'
+import type { CartItem, MetodoPago, PagoDetalle, Cliente, Sale, TipoComprobante, TipoDocumentoCliente, OrdenServicio } from '../types'
 import PagoDigitalCulqi from './PagoDigitalCulqi'
 
 export interface ResultadoVenta { saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null }
 
-export default function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, clienteInicial, titulo, onClose, onConfirm }: {
+export default function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, clienteInicial, titulo, permitirVincularOrden, onClose, onConfirm }: {
   total: number; subtotal: number; impuesto: number; cart: CartItem[]; online: boolean; nubefactActivo: boolean; culqiActivo: boolean
   locationId: string | null; cajeroId: string | null; cashSessionId: string | null
-  clienteInicial?: Cliente | null; titulo?: string
+  clienteInicial?: Cliente | null; titulo?: string; permitirVincularOrden?: boolean
   onClose: () => void; onConfirm: (r: ResultadoVenta | null) => void
 }) {
   const [mixto, setMixto] = useState(false)
@@ -28,6 +28,9 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
   const [docCliente, setDocCliente] = useState('')
   const [denominacion, setDenominacion] = useState('')
   const [direccionCliente, setDireccionCliente] = useState('')
+  const [ordenQuery, setOrdenQuery] = useState('')
+  const [ordenSel, setOrdenSel] = useState<OrdenServicio | null>(null)
+  const [ordenOpts, setOrdenOpts] = useState<OrdenServicio[]>([])
   // El pago con Yape/Plin verificado por Culqi solo se soporta como método único (no
   // dentro de "Pago mixto" todavía) — requiere QR real con confirmación por webhook,
   // así que sin conexión no se puede ofrecer (no hay forma de verificar un pago real).
@@ -47,6 +50,17 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
     if (texto.length < 2 || !online) { setClienteOpts([]); return }
     const { data } = await supabase.from('clientes').select('*').or(`nombre.ilike.%${texto}%,telefono.ilike.%${texto}%`).limit(6)
     setClienteOpts(data || [])
+  }
+
+  // Solo órdenes "listas" y sin cobrar todavía — evita vincular dos veces la misma.
+  const buscarOrden = async (texto: string) => {
+    setOrdenQuery(texto); setOrdenSel(null)
+    if (texto.length < 2 || !online) { setOrdenOpts([]); return }
+    const { data } = await supabase.from('ordenes_servicio').select('*')
+      .eq('estado', 'listo').is('venta_id', null)
+      .or(`cliente_nombre.ilike.%${texto}%,cliente_telefono.ilike.%${texto}%,equipo_marca.ilike.%${texto}%,equipo_modelo.ilike.%${texto}%`)
+      .limit(6)
+    setOrdenOpts(data || [])
   }
 
   const sumaLineas = sumarMontos(lineas.map((l) => Number(l.monto) || 0))
@@ -86,6 +100,7 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
     try {
       if (!online) throw new ErrorRegistroVenta('offline', false)
       const sale: Sale = await registrarVentaRPC(ventaBase)
+      if (ordenSel) await supabase.from('ordenes_servicio').update({ venta_id: sale.id }).eq('id', ordenSel.id)
       onConfirm({ saleId: sale.id, numero: sale.numero, fecha: sale.fecha, cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
     } catch (e) {
       // esErrorDeServidor = el request SÍ llegó al backend y fue rechazado por una
@@ -134,6 +149,39 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
             </div>
           )}
         </div>
+
+        {permitirVincularOrden && (
+          <div className="mb-4">
+            {ordenSel ? (
+              <div className="flex items-center justify-between bg-green-500/10 border border-green-500/30 rounded-xl px-3 py-2">
+                <span className="flex items-center gap-2 text-sm text-green-300 min-w-0">
+                  <Wrench size={14} className="shrink-0" />
+                  <span className="truncate">Orden #{ordenSel.numero} · {ordenSel.cliente_nombre}</span>
+                </span>
+                <button onClick={() => { setOrdenSel(null); setOrdenQuery('') }} className="text-gray-400 hover:text-white shrink-0" aria-label="Quitar orden vinculada"><X size={14} /></button>
+              </div>
+            ) : (
+              <div className="relative">
+                <Wrench size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                <input value={ordenQuery} onChange={(e) => buscarOrden(e.target.value)} placeholder="Vincular a orden de servicio (opcional)"
+                  className="w-full pl-8 pr-3 py-2 rounded-lg bg-[#0d1117] border border-[#30363d] text-white text-xs placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                {ordenOpts.length > 0 && (
+                  <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-[#21262d] border border-[#30363d] rounded-lg overflow-hidden max-h-32 overflow-y-auto overflow-x-hidden">
+                    {ordenOpts.map((o) => (
+                      <button key={o.id} onClick={() => { setOrdenSel(o); setOrdenOpts([]) }}
+                        className="w-full text-left px-3 py-2 text-xs text-gray-300 hover:bg-cyan-500/10">
+                        #{o.numero} · {o.cliente_nombre} {o.equipo_modelo && `· ${o.equipo_modelo}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {ordenQuery.length >= 2 && ordenOpts.length === 0 && (
+                  <p className="text-[11px] text-gray-600 mt-1">Sin órdenes "listas" sin cobrar que coincidan.</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {nubefactActivo && (
           <div className="mb-4">

@@ -7,7 +7,7 @@ import { useToast } from '../lib/toast'
 import BarcodeScanner from '../components/BarcodeScanner'
 import SubirImagenProducto from '../components/SubirImagenProducto'
 
-interface Categoria { id: string; nombre: string }
+interface Categoria { id: string; nombre: string; requiere_modelo_celular: boolean }
 interface Modelo { id: string; marca: string; modelo: string }
 
 interface FilaInventario {
@@ -39,7 +39,7 @@ export default function Inventario() {
   const [ajusteModal, setAjusteModal] = useState<FilaInventario | null>(null)
   const [histModal, setHistModal] = useState<FilaInventario | null>(null)
   const [editModal, setEditModal] = useState<FilaInventario | null>(null)
-  const [nuevoModal, setNuevoModal] = useState<null | { varianteDe?: { id: string; nombre: string }; prefillBarcode?: string }>(null)
+  const [nuevoModal, setNuevoModal] = useState<null | { varianteDe?: { id: string; nombre: string; categoria_id: string | null }; prefillBarcode?: string }>(null)
   const [scannerBuscar, setScannerBuscar] = useState(false)
   const [movimientos, setMovimientos] = useState<Movimiento[]>([])
   const [ajusteCant, setAjusteCant] = useState('')
@@ -64,7 +64,7 @@ export default function Inventario() {
 
   useEffect(() => {
     cargar()
-    supabase.from('categorias').select('id, nombre').order('nombre').then(({ data }) => setCategorias(data || []))
+    supabase.from('categorias').select('id, nombre, requiere_modelo_celular').order('nombre').then(({ data }) => setCategorias(data || []))
     supabase.from('modelos_celular').select('id, marca, modelo').order('marca').then(({ data }) => setModelos(data || []))
   }, [])
 
@@ -409,7 +409,7 @@ export default function Inventario() {
           onAgregarVariante={() => {
             const p = editModal.variant.product
             setEditModal(null)
-            setNuevoModal({ varianteDe: { id: p.id, nombre: p.nombre } })
+            setNuevoModal({ varianteDe: { id: p.id, nombre: p.nombre, categoria_id: p.categoria_id } })
           }}
         />
       )}
@@ -436,7 +436,7 @@ export default function Inventario() {
 }
 
 function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locationId, staffId, stockMinimoDefault, onClose, onSaved }: {
-  varianteDe?: { id: string; nombre: string }
+  varianteDe?: { id: string; nombre: string; categoria_id: string | null }
   prefillBarcode?: string
   categorias: Categoria[]
   modelos: Modelo[]
@@ -450,12 +450,13 @@ function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locati
   const esVariante = !!varianteDe
   const [nombre, setNombre] = useState('')
   const [sku, setSku] = useState('')
-  const [categoriaId, setCategoriaId] = useState('')
+  const [categoriaId, setCategoriaId] = useState(varianteDe?.categoria_id || '')
   const [precioBase, setPrecioBase] = useState('')
   const [costo, setCosto] = useState('0')
   const [imagenUrl, setImagenUrl] = useState('')
   const [color, setColor] = useState('')
   const [modeloId, setModeloId] = useState('')
+  const requiereModelo = categorias.find((c) => c.id === categoriaId)?.requiere_modelo_celular ?? false
   const [precioOverride, setPrecioOverride] = useState('')
   const [codigoBarras, setCodigoBarras] = useState(prefillBarcode || '')
   const [stockInicial, setStockInicial] = useState('0')
@@ -463,6 +464,8 @@ function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locati
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
   const [scannerAbierto, setScannerAbierto] = useState(false)
+
+  useEffect(() => { if (!requiereModelo) setModeloId('') }, [requiereModelo])
 
   const guardar = async () => {
     if (!esVariante && (!nombre.trim() || !precioBase)) { setError('Completa nombre y precio de venta'); return }
@@ -551,20 +554,22 @@ function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locati
         )}
 
         <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2 mt-1">{esVariante ? 'Datos de la variante' : 'Variante inicial'}</p>
-        <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className={`grid ${requiereModelo ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-3`}>
           <div>
             <label className="text-xs text-gray-500 font-semibold">Color</label>
             <input value={color} onChange={(e) => setColor(e.target.value)} placeholder="Negro"
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
-          <div>
-            <label className="text-xs text-gray-500 font-semibold">Modelo de celular</label>
-            <select value={modeloId} onChange={(e) => setModeloId(e.target.value)}
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-              <option value="">General</option>
-              {modelos.map((m) => <option key={m.id} value={m.id}>{m.marca} {m.modelo}</option>)}
-            </select>
-          </div>
+          {requiereModelo && (
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Modelo de celular</label>
+              <select value={modeloId} onChange={(e) => setModeloId(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                <option value="">General</option>
+                {modelos.map((m) => <option key={m.id} value={m.id}>{m.marca} {m.modelo}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         <label className="text-xs text-gray-500 font-semibold">Código de barras</label>
@@ -637,6 +642,9 @@ function ModalEditarProducto({ fila, categorias, modelos, onClose, onSaved, onAg
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
   const [scannerAbierto, setScannerAbierto] = useState(false)
+  const requiereModelo = categorias.find((c) => c.id === categoriaId)?.requiere_modelo_celular ?? false
+
+  useEffect(() => { if (!requiereModelo) setModeloId('') }, [requiereModelo])
 
   const guardar = async () => {
     if (!nombre.trim() || !precioBase) { setError('Completa nombre y precio'); return }
@@ -704,20 +712,22 @@ function ModalEditarProducto({ fila, categorias, modelos, onClose, onSaved, onAg
         </div>
 
         <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Esta variante</p>
-        <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className={`grid ${requiereModelo ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mb-3`}>
           <div>
             <label className="text-xs text-gray-500 font-semibold">Color</label>
             <input value={color} onChange={(e) => setColor(e.target.value)}
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
-          <div>
-            <label className="text-xs text-gray-500 font-semibold">Modelo de celular</label>
-            <select value={modeloId} onChange={(e) => setModeloId(e.target.value)}
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-              <option value="">General</option>
-              {modelos.map((m) => <option key={m.id} value={m.id}>{m.marca} {m.modelo}</option>)}
-            </select>
-          </div>
+          {requiereModelo && (
+            <div>
+              <label className="text-xs text-gray-500 font-semibold">Modelo de celular</label>
+              <select value={modeloId} onChange={(e) => setModeloId(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                <option value="">General</option>
+                {modelos.map((m) => <option key={m.id} value={m.id}>{m.marca} {m.modelo}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         <label className="text-xs text-gray-500 font-semibold">Código de barras</label>

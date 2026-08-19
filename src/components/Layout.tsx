@@ -21,8 +21,11 @@ export default function Layout() {
     return window.innerWidth < 1024
   })
   const { staff, isAdmin, cashSessionId, signOut } = useAuth()
-  const online = useOnlineStatus()
+  const { online } = useOnlineStatus()
   const [pendientes, setPendientes] = useState(0)
+  const [fallidas, setFallidas] = useState(0)
+  const [agotadas, setAgotadas] = useState(0)
+  const [reintentandoManual, setReintentandoManual] = useState(false)
 
   const navItems = isAdmin
     ? [...baseNavItems, { to: '/personal', label: 'Personal', icon: UserCog }, { to: '/configuracion', label: 'Configuración', icon: Settings }]
@@ -30,14 +33,21 @@ export default function Layout() {
 
   useEffect(() => { localStorage.setItem('lukatcell_sidebar_collapsed', collapsed ? '1' : '0') }, [collapsed])
 
-  useEffect(() => { contarVentasPendientes().then(setPendientes) }, [])
+  const actualizarContador = () => contarVentasPendientes().then(({ pendientes, fallidas, agotadas }) => { setPendientes(pendientes); setFallidas(fallidas); setAgotadas(agotadas) })
+
+  useEffect(() => { actualizarContador() }, [])
 
   useEffect(() => {
     if (!online) return
-    sincronizarVentasPendientes().then(({ ok }) => {
-      if (ok > 0) contarVentasPendientes().then(setPendientes)
-    })
+    sincronizarVentasPendientes().then(() => actualizarContador())
+    const interval = setInterval(() => { sincronizarVentasPendientes().then(() => actualizarContador()) }, 45000)
+    return () => clearInterval(interval)
   }, [online])
+
+  const reintentarAgotadas = () => {
+    setReintentandoManual(true)
+    sincronizarVentasPendientes(true).then(() => { actualizarContador(); setReintentandoManual(false) })
+  }
 
   const TurnoBadge = ({ compact }: { compact?: boolean }) => (
     <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId ? 'text-green-400' : 'text-gray-500'}`}>
@@ -134,12 +144,26 @@ export default function Layout() {
       <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">
         {!online && (
           <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
-            <WifiOff size={13} /> Sin conexión — las ventas se guardarán y sincronizarán al reconectar
+            <WifiOff size={13} /> ● OFFLINE — las ventas se guardarán y sincronizarán al reconectar
+            {pendientes > 0 && <span className="ml-1">({pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'})</span>}
           </div>
         )}
         {online && pendientes > 0 && (
           <div className="bg-cyan-500/15 border-b border-cyan-500/30 text-cyan-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
-            Sincronizando {pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'}...
+            ● ONLINE — sincronizando {pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'}...
+          </div>
+        )}
+        {online && pendientes === 0 && fallidas > 0 && (
+          <div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
+            {fallidas} venta{fallidas === 1 ? '' : 's'} no se pudo{fallidas === 1 ? '' : 'ieron'} sincronizar — se reintentará automáticamente
+          </div>
+        )}
+        {online && agotadas > 0 && (
+          <div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center justify-between gap-2 shrink-0">
+            <span>{agotadas} venta{agotadas === 1 ? '' : 's'} requiere{agotadas === 1 ? '' : 'n'} atención — no se pudo{agotadas === 1 ? '' : 'ieron'} sincronizar tras varios intentos</span>
+            <button onClick={reintentarAgotadas} disabled={reintentandoManual} className="underline shrink-0 disabled:opacity-50">
+              {reintentandoManual ? 'Reintentando...' : 'Reintentar ahora'}
+            </button>
           </div>
         )}
         <div className="flex-1 min-w-0 min-h-0">

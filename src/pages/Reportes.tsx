@@ -1,11 +1,20 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { Download, TrendingUp, Receipt, CreditCard, DollarSign, Percent, Trophy, AlertTriangle, Clock, ChevronRight } from 'lucide-react'
+import { Download, TrendingUp, Receipt, CreditCard, DollarSign, Percent, Trophy, AlertTriangle, Clock, ChevronRight, Printer, Loader2, FileText, RefreshCw } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useConfig } from '../lib/config'
+import { sumarMontos } from '../lib/money'
+import ReciboVenta from '../components/ReciboVenta'
+import type { ReciboLineaItem, PagoDetalle, EstadoComprobante } from '../types'
 
-interface VentaFila { id: string; fecha: string; total: number; estado: string }
+interface ComprobanteResumen { id: string; estado: EstadoComprobante; tipo_comprobante: string; serie: string; numero: number; enlace_pdf: string | null }
+interface VentaFila { id: string; numero: number; fecha: string; total: number; estado: string; comprobante?: ComprobanteResumen }
+interface ReimpresionData {
+  saleId: string; numero: number | null; fecha: string; cart: ReciboLineaItem[]
+  subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null
+}
 interface Ganancias { total_ventas: number; total_costo: number; total_ganancia: number; margen_promedio: number; num_ventas: number }
 interface TopProducto { producto_nombre: string; producto_sku: string | null; unidades_vendidas: number; ingreso: number; costo_total: number; ganancia: number; margen: number }
 interface StockBajoFila { variant_id: string; cantidad: number; stock_minimo: number; variant: { product: { nombre: string } | null } | null }
@@ -26,6 +35,7 @@ function rangoFechas(rango: Rango) {
 
 export default function Reportes() {
   const { isAdmin } = useAuth()
+  const { config } = useConfig()
   const [ventas, setVentas] = useState<VentaFila[]>([])
   const [totalHoy, setTotalHoy] = useState(0)
   const [ticketPromedio, setTicketPromedio] = useState(0)
@@ -35,6 +45,9 @@ export default function Reportes() {
   const [topProductos, setTopProductos] = useState<TopProducto[]>([])
   const [stockBajo, setStockBajo] = useState<StockBajoFila[]>([])
   const [ordenesEstancadas, setOrdenesEstancadas] = useState<OrdenEstancada[]>([])
+  const [reimprimir, setReimprimir] = useState<ReimpresionData | null>(null)
+  const [cargandoReimpresion, setCargandoReimpresion] = useState<string | null>(null)
+  const [reintentandoComprobante, setReintentandoComprobante] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isAdmin) return
@@ -51,14 +64,64 @@ export default function Reportes() {
 
   useEffect(() => {
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
-    supabase.from('sales').select('id, fecha, total, estado').order('fecha', { ascending: false }).limit(200)
-      .then(({ data }) => {
-        setVentas(data || [])
-        const vh = (data || []).filter((v) => new Date(v.fecha) >= hoy)
-        const t = vh.reduce((s, v) => s + Number(v.total), 0)
+    supabase.from('sales').select('id, numero, fecha, total, estado').order('fecha', { ascending: false }).limit(200)
+      .then(async ({ data }) => {
+        const filas: VentaFila[] = data || []
+        const vh = filas.filter((v) => new Date(v.fecha) >= hoy)
+        const t = sumarMontos(vh.map((v) => Number(v.total)))
         setTotalHoy(t); setCantHoy(vh.length); setTicketPromedio(vh.length ? t / vh.length : 0)
+
+        if (config.nubefact_activo && filas.length > 0) {
+          const { data: comprobantes } = await supabase.from('comprobantes_electronicos')
+            .select('id, sale_id, estado, tipo_comprobante, serie, numero, enlace_pdf')
+            .in('sale_id', filas.map((v) => v.id))
+          const porVenta = new Map((comprobantes || []).map((c) => [c.sale_id, c as ComprobanteResumen]))
+          setVentas(filas.map((v) => ({ ...v, comprobante: porVenta.get(v.id) })))
+        } else {
+          setVentas(filas)
+        }
       })
-  }, [])
+  }, [config.nubefact_activo])
+
+  const reintentarComprobante = async (comprobanteId: string) => {
+    setReintentandoComprobante(comprobanteId)
+    await supabase.functions.invoke('emitir-comprobante', { body: { comprobante_id: comprobanteId } })
+    const { data: c } = await supabase.from('comprobantes_electronicos').select('id, sale_id, estado, tipo_comprobante, serie, numero, enlace_pdf').eq('id', comprobanteId).single()
+    if (c) setVentas((vs) => vs.map((v) => v.id === c.sale_id ? { ...v, comprobante: c as ComprobanteResumen } : v))
+    setReintentandoComprobante(null)
+  }
+
+  const abrirReimpresion = async (ventaId: string) => {
+    setCargandoReimpresion(ventaId)
+    const [{ data: venta }, { data: items }, { data: pagos }] = await Promise.all([
+      supabase.from('sales').select('id, numero, fecha, subtotal, impuesto, total, cliente_id').eq('id', ventaId).single(),
+      supabase.from('sale_items').select('cantidad, precio_unitario, descuento, producto_nombre_snapshot, variant_id').eq('sale_id', ventaId),
+      supabase.from('payments').select('metodo, monto, referencia').eq('sale_id', ventaId),
+    ])
+    let clienteNombre: string | null = null
+    if (venta?.cliente_id) {
+      const { data: cliente } = await supabase.from('clientes').select('nombre').eq('id', venta.cliente_id).maybeSingle()
+      clienteNombre = cliente?.nombre ?? null
+    }
+    setCargandoReimpresion(null)
+    if (!venta || !items) return
+    setReimprimir({
+      saleId: venta.id,
+      numero: venta.numero,
+      fecha: venta.fecha,
+      cart: items.map((i) => ({
+        variant: { id: i.variant_id, product: { nombre: i.producto_nombre_snapshot || 'Producto' } },
+        cantidad: i.cantidad,
+        precio_unitario: Number(i.precio_unitario),
+        descuento: Number(i.descuento || 0),
+      })),
+      subtotal: Number(venta.subtotal),
+      impuesto: Number(venta.impuesto),
+      total: Number(venta.total),
+      pagos: (pagos || []).map((p) => ({ metodo: p.metodo, monto: Number(p.monto), referencia: p.referencia ?? undefined })) as PagoDetalle[],
+      clienteNombre,
+    })
+  }
 
   const cargarGanancias = useCallback(async () => {
     const { desde, hasta } = rangoFechas(rango)
@@ -82,6 +145,31 @@ export default function Reportes() {
   }
 
   const maxGanancia = Math.max(1, ...topProductos.map((p) => Number(p.ganancia)))
+
+  const BadgeComprobante = ({ v }: { v: VentaFila }) => {
+    if (!config.nubefact_activo) return null
+    if (!v.comprobante) return <span className="text-[11px] text-gray-600">—</span>
+    const c = v.comprobante
+    const etiqueta = c.tipo_comprobante === 'factura' ? 'Factura' : 'Boleta'
+    if (c.estado === 'emitido') {
+      return c.enlace_pdf ? (
+        <a href={c.enlace_pdf} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-500/15 text-green-400 hover:bg-green-500/25">
+          <FileText size={11} /> {etiqueta} {c.serie}-{c.numero}
+        </a>
+      ) : (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-500/15 text-green-400"><FileText size={11} /> {etiqueta} {c.serie}-{c.numero}</span>
+      )
+    }
+    if (c.estado === 'error') {
+      return (
+        <button onClick={() => reintentarComprobante(c.id)} disabled={reintentandoComprobante === c.id}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-500/15 text-red-400 hover:bg-red-500/25">
+          {reintentandoComprobante === c.id ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} {etiqueta} con error
+        </button>
+      )
+    }
+    return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-yellow-500/15 text-yellow-400"><Loader2 size={11} className="animate-spin" /> {etiqueta} pendiente</span>
+  }
 
   return (
     <div className="p-3 md:p-5">
@@ -197,34 +285,56 @@ export default function Reportes() {
         {ventas.map((v) => (
           <div key={v.id} className="bg-[#161b22] rounded-xl border border-[#30363d] p-3 flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm text-gray-300 truncate">{new Date(v.fecha).toLocaleString('es-PE')}</p>
-              <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${v.estado === 'completada' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>{v.estado}</span>
+              <p className="text-sm text-gray-300 truncate">V-{String(v.numero).padStart(6, '0')} · {new Date(v.fecha).toLocaleString('es-PE')}</p>
+              <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${v.estado === 'completada' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>{v.estado}</span>
+                <BadgeComprobante v={v} />
+              </div>
             </div>
-            <p className="font-bold text-white shrink-0">S/ {Number(v.total).toFixed(2)}</p>
+            <div className="flex items-center gap-2 shrink-0">
+              <p className="font-bold text-white">S/ {Number(v.total).toFixed(2)}</p>
+              <button onClick={() => abrirReimpresion(v.id)} disabled={cargandoReimpresion === v.id}
+                className="p-2 rounded-lg bg-cyan-500/10 text-cyan-400 active:bg-cyan-500/20" aria-label={`Reimprimir venta V-${v.numero}`}>
+                {cargandoReimpresion === v.id ? <Loader2 size={15} className="animate-spin" /> : <Printer size={15} />}
+              </button>
+            </div>
           </div>
         ))}
         {ventas.length === 0 && <p className="py-10 text-center text-gray-500 bg-[#161b22] rounded-2xl border border-[#30363d]">Sin ventas registradas</p>}
       </div>
 
       <div className="hidden md:block bg-[#161b22] rounded-2xl border border-[#30363d] overflow-x-auto">
-        <table className="w-full text-sm min-w-[420px]">
+        <table className="w-full text-sm min-w-[500px]">
           <thead><tr className="border-b border-[#30363d]">
+            <th className="text-left px-4 py-3 text-xs text-gray-500 uppercase">Ticket</th>
             <th className="text-left px-4 py-3 text-xs text-gray-500 uppercase">Fecha</th>
             <th className="text-right px-4 py-3 text-xs text-gray-500 uppercase">Total</th>
             <th className="text-left px-4 py-3 text-xs text-gray-500 uppercase">Estado</th>
+            {config.nubefact_activo && <th className="text-left px-4 py-3 text-xs text-gray-500 uppercase">Comprobante</th>}
+            <th className="text-center px-4 py-3 text-xs text-gray-500 uppercase">Reimprimir</th>
           </tr></thead>
           <tbody className="divide-y divide-[#30363d]">
             {ventas.map((v) => (
               <tr key={v.id} className="hover:bg-[#21262d] transition-colors">
+                <td className="px-4 py-3 text-gray-400 font-mono text-xs">V-{String(v.numero).padStart(6, '0')}</td>
                 <td className="px-4 py-3 text-gray-300">{new Date(v.fecha).toLocaleString('es-PE')}</td>
                 <td className="px-4 py-3 text-right font-semibold text-white">S/ {Number(v.total).toFixed(2)}</td>
                 <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${v.estado === 'completada' ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>{v.estado}</span></td>
+                {config.nubefact_activo && <td className="px-4 py-3"><BadgeComprobante v={v} /></td>}
+                <td className="px-4 py-3 text-center">
+                  <button onClick={() => abrirReimpresion(v.id)} disabled={cargandoReimpresion === v.id}
+                    className="p-1.5 rounded-lg bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 transition-colors" title="Reimprimir" aria-label={`Reimprimir venta V-${v.numero}`}>
+                    {cargandoReimpresion === v.id ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />}
+                  </button>
+                </td>
               </tr>
             ))}
-            {ventas.length === 0 && <tr><td colSpan={3} className="px-4 py-10 text-center text-gray-500">Sin ventas registradas</td></tr>}
+            {ventas.length === 0 && <tr><td colSpan={config.nubefact_activo ? 6 : 5} className="px-4 py-10 text-center text-gray-500">Sin ventas registradas</td></tr>}
           </tbody>
         </table>
       </div>
+
+      {reimprimir && <ReciboVenta {...reimprimir} onClose={() => setReimprimir(null)} />}
     </div>
   )
 }

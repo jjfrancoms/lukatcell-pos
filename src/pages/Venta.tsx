@@ -1,12 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid, Percent, ShoppingBag, Plus, Minus, ChevronUp, UserPlus, User } from 'lucide-react'
+import { Search, Trash2, X, Smartphone, Keyboard, Printer, Wrench, Monitor, Headphones, Cable, Shield, LayoutGrid, Percent, ShoppingBag, Plus, Minus, ChevronUp, UserPlus, User, RotateCcw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useConfig } from '../lib/config'
-import { cacheCatalogo, cacheCategorias, buscarEnCache, getCatalogoCache, queueVenta, useOnlineStatus } from '../lib/offline'
+import {
+  cacheCatalogo, cacheCategorias, buscarEnCache, getCatalogoCache, queueVenta, useOnlineStatus,
+  mapVarianteRow, sincronizarCatalogoIncremental, marcarSyncCatalogoCompleta,
+  registrarVenta as registrarVentaRPC, guardarCarritoActivo, obtenerCarritoActivo, borrarCarritoActivo,
+  ErrorRegistroVenta,
+} from '../lib/offline'
+import { calcularTotalesCarrito, calcularDescuentoLinea, calcularVuelto, sumarMontos, restarMontos } from '../lib/money'
 import { useToast } from '../lib/toast'
-import type { ProductVariant, CartItem, MetodoPago, PagoDetalle, Cliente } from '../types'
+import type { ProductVariant, CartItem, MetodoPago, PagoDetalle, Cliente, Sale, TipoComprobante, TipoDocumentoCliente } from '../types'
 import ReciboVenta from '../components/ReciboVenta'
+import PagoDigitalCulqi from '../components/PagoDigitalCulqi'
 
 interface Categoria { id: string; nombre: string }
 const catIcons: Record<string, any> = {
@@ -15,17 +22,10 @@ const catIcons: Record<string, any> = {
   'Insumos de impresora': Printer, 'Reparación técnica': Wrench, 'Accesorios de PC': Monitor,
 }
 
-function mapRow(r: any): ProductVariant {
-  return { id: r.id, product_id: r.product_id, color: r.color, modelo_celular_id: r.modelo_celular_id,
-    precio_override: r.precio_override, codigo_barras: r.codigo_barras,
-    product: { nombre: r.producto_nombre, sku: r.producto_sku, precio_base: Number(r.producto_precio), imagen_url: r.producto_imagen } as any,
-    modelo: r.modelo_marca ? { marca: r.modelo_marca, modelo: r.modelo_modelo } as any : null }
-}
-
 export default function Venta() {
   const { staff, cashSessionId } = useAuth()
   const { config } = useConfig()
-  const online = useOnlineStatus()
+  const { online } = useOnlineStatus()
   const { showToast } = useToast()
   const IGV = config.igv_activo ? config.igv_porcentaje / 100 : 0
   const [query, setQuery] = useState('')
@@ -40,7 +40,8 @@ export default function Venta() {
   const [descValor, setDescValor] = useState('')
   const [descTipo, setDescTipo] = useState<'pct' | 'fijo'>('pct')
   const [loading, setLoading] = useState(true)
-  const [recibo, setRecibo] = useState<{ saleId: string; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null } | null>(null)
+  const [recuperarDisponible, setRecuperarDisponible] = useState<{ cart: CartItem[]; savedAt: string } | null>(null)
+  const [recibo, setRecibo] = useState<{ saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null; cajeroNombre: string | null } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -50,19 +51,40 @@ export default function Venta() {
       supabase.from('product_variants').select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)'),
     ]).then(([catRes, favRes, allRes]) => {
       const cats = catRes.data || []
-      const favs = (favRes.data || []).map(mapRow)
+      const favs = (favRes.data || []).map(mapVarianteRow)
       const todas = ((allRes.data as any[]) || []).map((r) => ({ ...r, product: r.product, modelo: r.modelo })) as ProductVariant[]
       setCategorias(cats)
       setFavoritos(favs.length > 0 ? favs : todas.slice(0, 12))
       setLoading(false)
       if (cats.length) cacheCategorias(cats)
-      if (todas.length) cacheCatalogo(todas)
+      if (todas.length) { cacheCatalogo(todas); marcarSyncCatalogoCompleta() }
     }).catch(async () => {
       const cached = await getCatalogoCache()
       setFavoritos(cached.slice(0, 12))
       setLoading(false)
     })
   }, [])
+
+  // Sync incremental del catálogo cuando hay conexión (no vuelve a descargar todo)
+  useEffect(() => {
+    if (!online) return
+    sincronizarCatalogoIncremental()
+  }, [online])
+
+  // Recuperación de carrito: si el navegador se cerró a mitad de una venta, se ofrece recuperarlo (nunca se auto-convierte en venta)
+  useEffect(() => {
+    if (!staff?.id) return
+    obtenerCarritoActivo(staff.id).then((guardado) => {
+      if (guardado && guardado.cart.length > 0) setRecuperarDisponible(guardado)
+    })
+  }, [staff?.id])
+
+  // Persistir el carrito activo en IndexedDB (debounced) para poder recuperarlo
+  useEffect(() => {
+    if (!staff?.id) return
+    const t = setTimeout(() => { guardarCarritoActivo(cart, staff.id) }, 300)
+    return () => clearTimeout(t)
+  }, [cart, staff?.id])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -84,7 +106,7 @@ export default function Venta() {
       }
       const { data } = await supabase.rpc('buscar_por_barcode', { barcode: query.trim() })
       if (data && data.length > 0) {
-        agregarAlCarrito(mapRow(data[0])); setQuery(''); setResults([])
+        agregarAlCarrito(mapVarianteRow(data[0])); setQuery(''); setResults([])
       }
     }
   }
@@ -96,12 +118,12 @@ export default function Venta() {
 
     if (/^\d{8,}$/.test(texto)) {
       const { data: exact } = await supabase.rpc('buscar_por_barcode', { barcode: texto })
-      if (exact && exact.length > 0) { agregarAlCarrito(mapRow(exact[0])); setQuery(''); setResults([]); return }
+      if (exact && exact.length > 0) { agregarAlCarrito(mapVarianteRow(exact[0])); setQuery(''); setResults([]); return }
     }
 
     try {
       const { data } = await supabase.rpc('buscar_variantes', { texto })
-      setResults((data || []).map(mapRow))
+      setResults((data || []).map(mapVarianteRow))
     } catch { setResults(await buscarEnCache(texto)) }
   }, [online])
 
@@ -126,7 +148,7 @@ export default function Venta() {
       setResults(((data as any[]) || []).map((r) => ({ ...r, product: r.product, modelo: r.modelo })))
     } else {
       const { data } = await supabase.rpc('variantes_por_categoria', { cat_id: catId })
-      setResults((data || []).map(mapRow))
+      setResults((data || []).map(mapVarianteRow))
     }
   }
 
@@ -149,20 +171,39 @@ export default function Venta() {
   }
   const applyDisc = (vid: string) => {
     const val = Number(descValor) || 0; if (val <= 0) { setDescItem(null); return }
-    setCart((p) => p.map((i) => { if (i.variant.id !== vid) return i; const d = descTipo === 'pct' ? (i.precio_unitario * val / 100) : val; return { ...i, descuento: Math.min(d, i.precio_unitario) } }))
+    setCart((p) => p.map((i) => { if (i.variant.id !== vid) return i; return { ...i, descuento: calcularDescuentoLinea(i.precio_unitario, val, descTipo) } }))
     setDescItem(null); setDescValor('')
   }
 
-  const subtotal = cart.reduce((s, i) => s + (i.precio_unitario - i.descuento) * i.cantidad, 0)
-  const totalDesc = cart.reduce((s, i) => s + i.descuento * i.cantidad, 0)
-  const impuesto = subtotal * IGV
-  const total = subtotal + impuesto
+  const recuperarCarrito = () => {
+    if (!recuperarDisponible) return
+    setCart(recuperarDisponible.cart)
+    setRecuperarDisponible(null)
+    showToast('Venta recuperada', 'success')
+  }
+  const descartarRecuperacion = () => {
+    setRecuperarDisponible(null)
+    if (staff?.id) borrarCarritoActivo(staff.id)
+  }
+
+  const { subtotal, totalDescuento: totalDesc, impuesto, total } = calcularTotalesCarrito(cart, IGV)
   const items = query.length >= 2 || catActiva ? results : favoritos
 
   return (
     <div className="h-full flex flex-col lg:flex-row relative">
       {/* Panel productos */}
       <div className="flex-1 min-w-0 p-3 md:p-5 flex flex-col min-h-0">
+        {recuperarDisponible && (
+          <div className="mb-3 flex items-center justify-between gap-3 bg-orange-500/10 border border-orange-500/30 rounded-xl px-4 py-2.5">
+            <span className="flex items-center gap-2 text-sm text-orange-300">
+              <RotateCcw size={15} className="shrink-0" /> Tienes una venta sin terminar de {new Date(recuperarDisponible.savedAt).toLocaleTimeString('es-PE')}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button onClick={descartarRecuperacion} className="text-xs font-semibold text-gray-400 hover:text-white">Descartar</button>
+              <button onClick={recuperarCarrito} className="text-xs font-bold bg-orange-500 text-black px-3 py-1.5 rounded-lg">Recuperar</button>
+            </div>
+          </div>
+        )}
         <div className="relative mb-3">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
           <input ref={searchRef} value={query} onChange={(e) => buscar(e.target.value)}
@@ -249,7 +290,7 @@ export default function Venta() {
           <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-2">
             {cart.length === 0 && <div className="text-center mt-8"><ShoppingBag size={36} className="text-gray-600 mx-auto mb-2" /><p className="text-gray-500 text-sm">Agrega productos</p></div>}
             {cart.map((item) => {
-              const pf = item.precio_unitario - item.descuento
+              const pf = restarMontos(item.precio_unitario, item.descuento)
               return (
                 <div key={item.variant.id} className="bg-[#21262d] rounded-lg p-2.5 border border-[#30363d]">
                   <div className="flex items-center gap-2">
@@ -297,36 +338,27 @@ export default function Venta() {
 
       {showPago && (
         <ModalPago total={total} subtotal={subtotal} impuesto={impuesto} cart={cart} online={online}
+          nubefactActivo={config.nubefact_activo} culqiActivo={config.culqi_activo}
           locationId={staff?.location_id ?? null} cajeroId={staff?.id ?? null} cashSessionId={cashSessionId}
           onClose={() => setShowPago(false)}
           onConfirm={(res) => {
             setCart([]); setShowPago(false); setShowCart(false)
+            if (staff?.id) borrarCarritoActivo(staff.id)
             if (res) {
-              setRecibo(res)
+              setRecibo({ ...res, cajeroNombre: staff?.nombre ?? null })
               if (res.saleId === 'pendiente-sync') showToast('Venta guardada sin conexión, se sincronizará automáticamente', 'info')
             }
           }} />
       )}
-      {recibo && <ReciboVenta {...recibo} onClose={() => setRecibo(null)} />}
+      {recibo && <ReciboVenta {...recibo} autoImprimir={config.auto_imprimir_ticket} onClose={() => setRecibo(null)} />}
     </div>
   )
 }
 
-async function registrarVenta(cart: CartItem[], subtotal: number, impuesto: number, total: number, pagos: PagoDetalle[], clienteId: string | null, clienteDoc: string | null, locationId: string | null, cajeroId: string | null, cashSessionId: string | null) {
-  const { data: sale, error } = await supabase.from('sales')
-    .insert({ subtotal, impuesto, total, estado: 'completada', cliente_id: clienteId, cliente_doc: clienteDoc, location_id: locationId, cajero_id: cajeroId, cash_session_id: cashSessionId })
-    .select().single()
-  if (error || !sale) throw new Error(error?.message || 'Error')
-  const items = cart.map((i) => ({ sale_id: sale.id, variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario, subtotal: (i.precio_unitario - i.descuento) * i.cantidad, descuento: i.descuento }))
-  await supabase.from('sale_items').insert(items)
-  await supabase.from('payments').insert(pagos.map((p) => ({ sale_id: sale.id, metodo: p.metodo, monto: p.monto, referencia: p.referencia || null })))
-  return sale.id as string
-}
+interface ResultadoVenta { saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null }
 
-interface ResultadoVenta { saleId: string; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null }
-
-function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajeroId, cashSessionId, onClose, onConfirm }: {
-  total: number; subtotal: number; impuesto: number; cart: CartItem[]; online: boolean
+function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, onClose, onConfirm }: {
+  total: number; subtotal: number; impuesto: number; cart: CartItem[]; online: boolean; nubefactActivo: boolean; culqiActivo: boolean
   locationId: string | null; cajeroId: string | null; cashSessionId: string | null
   onClose: () => void; onConfirm: (r: ResultadoVenta | null) => void
 }) {
@@ -340,7 +372,18 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
   const [clienteOpts, setClienteOpts] = useState<Cliente[]>([])
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState('')
-  const vuelto = metodo === 'efectivo' ? Math.max(0, Number(recibido || 0) - total) : 0
+  const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>('boleta')
+  const [docCliente, setDocCliente] = useState('')
+  const [denominacion, setDenominacion] = useState('')
+  const [direccionCliente, setDireccionCliente] = useState('')
+  // El pago con Yape/Plin verificado por Culqi solo se soporta como método único (no
+  // dentro de "Pago mixto" todavía) — requiere QR real con confirmación por webhook,
+  // así que sin conexión no se puede ofrecer (no hay forma de verificar un pago real).
+  const pagoDigitalDisponible = culqiActivo && online && !mixto && (metodo === 'yape' || metodo === 'plin')
+  // Generado UNA vez al abrir el modal y reutilizado en todos los reintentos: garantiza
+  // que un doble clic o un timeout de red nunca creen dos ventas (idempotencia real vive en el backend).
+  const [clientTransactionId] = useState(() => crypto.randomUUID())
+  const vuelto = metodo === 'efectivo' ? calcularVuelto(Number(recibido || 0), total) : 0
 
   useEffect(() => {
     if (!mixto) return
@@ -354,29 +397,57 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
     setClienteOpts(data || [])
   }
 
-  const sumaLineas = lineas.reduce((s, l) => s + (Number(l.monto) || 0), 0)
-  const faltante = total - sumaLineas
-  const vueltoMixto = Math.max(0, sumaLineas - total)
+  const sumaLineas = sumarMontos(lineas.map((l) => Number(l.monto) || 0))
+  const faltante = restarMontos(total, sumaLineas)
+  const vueltoMixto = sumaLineas > total ? restarMontos(sumaLineas, total) : 0
 
   const agregarLinea = () => setLineas((l) => [...l, { metodo: 'efectivo', monto: Math.max(0, faltante) }])
   const quitarLinea = (idx: number) => setLineas((l) => l.filter((_, i) => i !== idx))
   const actualizarLinea = (idx: number, patch: Partial<PagoDetalle>) => setLineas((l) => l.map((x, i) => i === idx ? { ...x, ...patch } : x))
 
-  const confirmar = async () => {
+  const confirmar = async (pagoDigitalId?: string) => {
     setGuardando(true); setError('')
-    const pagos: PagoDetalle[] = mixto ? lineas.filter((l) => l.monto > 0) : [{ metodo, monto: total, referencia: metodo !== 'efectivo' ? referencia : undefined }]
+    const pagos: PagoDetalle[] = mixto
+      ? lineas.filter((l) => l.monto > 0)
+      : [{ metodo, monto: total, referencia: metodo !== 'efectivo' ? referencia : undefined, pagoDigitalId }]
     if (mixto && sumaLineas < total - 0.005) { setError('La suma de los pagos no cubre el total'); setGuardando(false); return }
+    if (pagoDigitalDisponible && !pagoDigitalId) { setGuardando(false); return }
+    if (nubefactActivo && tipoComprobante === 'factura') {
+      if (!/^\d{11}$/.test(docCliente)) { setError('Para factura, ingresa un RUC válido (11 dígitos)'); setGuardando(false); return }
+      if (!denominacion.trim()) { setError('Para factura, ingresa la razón social del cliente'); setGuardando(false); return }
+    }
+    if (nubefactActivo && tipoComprobante === 'boleta' && docCliente && !/^\d{8}$/.test(docCliente)) {
+      setError('El DNI debe tener 8 dígitos'); setGuardando(false); return
+    }
     const clienteId = clienteSel?.id ?? null
+    const ventaBase = {
+      clientTransactionId, cart, subtotal, impuesto, total, pagos,
+      clienteId, clienteDoc: null, cashSessionId, locationId, cajeroId,
+      comprobante: nubefactActivo ? {
+        tipoComprobante,
+        clienteTipoDoc: (tipoComprobante === 'factura' ? 'ruc' : docCliente ? 'dni' : null) as TipoDocumentoCliente | null,
+        clienteNumDoc: docCliente || null,
+        clienteDenominacion: denominacion.trim() || clienteSel?.nombre || null,
+        clienteDireccion: direccionCliente.trim() || null,
+      } : { tipoComprobante: 'boleta' as TipoComprobante, clienteTipoDoc: null, clienteNumDoc: null, clienteDenominacion: null, clienteDireccion: null },
+    }
     try {
-      if (!online) throw new Error('offline')
-      const saleId = await registrarVenta(cart, subtotal, impuesto, total, pagos, clienteId, null, locationId, cajeroId, cashSessionId)
-      onConfirm({ saleId, fecha: new Date().toISOString(), cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
+      if (!online) throw new ErrorRegistroVenta('offline', false)
+      const sale: Sale = await registrarVentaRPC(ventaBase)
+      onConfirm({ saleId: sale.id, numero: sale.numero, fecha: sale.fecha, cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
     } catch (e) {
-      if (!online || (e instanceof Error && /fetch|network/i.test(e.message))) {
-        await queueVenta({ cart, subtotal, impuesto, total, pagos, clienteId, clienteDoc: null, cashSessionId, locationId, cajeroId, createdAt: new Date().toISOString() })
-        onConfirm({ saleId: 'pendiente-sync', fecha: new Date().toISOString(), cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
+      // esErrorDeServidor = el request SÍ llegó al backend y fue rechazado por una
+      // regla de negocio (ej. stock insuficiente) -> no se debe encolar, hay que
+      // mostrárselo al cajero. Cualquier otro fallo (nunca llegó respuesta, fetch
+      // roto, timeout) se trata como desconexión y se encola — más confiable que
+      // adivinar por el texto del error, que varía entre navegadores.
+      const esErrorDeServidor = e instanceof ErrorRegistroVenta && e.esErrorDeServidor
+      if (!esErrorDeServidor) {
+        await queueVenta({ ...ventaBase, createdAt: new Date().toISOString() })
+        onConfirm({ saleId: 'pendiente-sync', numero: null, fecha: new Date().toISOString(), cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
       } else {
-        setError(e instanceof Error ? e.message : 'Error')
+        // Mensaje humano tal como lo produce la RPC (ej. "Stock insuficiente para completar la venta")
+        setError(e instanceof Error ? e.message : 'No se pudo registrar la venta')
       }
     } finally { setGuardando(false) }
   }
@@ -412,6 +483,28 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
           )}
         </div>
 
+        {nubefactActivo && (
+          <div className="mb-4">
+            <div className="flex bg-[#0d1117] rounded-lg border border-[#30363d] overflow-hidden mb-2">
+              <button onClick={() => setTipoComprobante('boleta')} className={`flex-1 py-2 text-xs font-bold ${tipoComprobante === 'boleta' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>Boleta</button>
+              <button onClick={() => setTipoComprobante('factura')} className={`flex-1 py-2 text-xs font-bold ${tipoComprobante === 'factura' ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>Factura</button>
+            </div>
+            {tipoComprobante === 'factura' ? (
+              <div className="space-y-2">
+                <input value={docCliente} onChange={(e) => setDocCliente(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="RUC (11 dígitos)" inputMode="numeric"
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                <input value={denominacion} onChange={(e) => setDenominacion(e.target.value)} placeholder="Razón social"
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                <input value={direccionCliente} onChange={(e) => setDireccionCliente(e.target.value)} placeholder="Dirección fiscal (opcional)"
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              </div>
+            ) : (
+              <input value={docCliente} onChange={(e) => setDocCliente(e.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="DNI (opcional)" inputMode="numeric"
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            )}
+          </div>
+        )}
+
         <div className="flex bg-[#0d1117] rounded-lg border border-[#30363d] overflow-hidden mb-4">
           <button onClick={() => setMixto(false)} className={`flex-1 py-2 text-xs font-bold ${!mixto ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>Un método</button>
           <button onClick={() => setMixto(true)} className={`flex-1 py-2 text-xs font-bold ${mixto ? 'bg-cyan-500 text-black' : 'text-gray-400'}`}>Pago mixto</button>
@@ -420,10 +513,14 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
         {!mixto ? (
           <>
             <div className="grid grid-cols-4 gap-2 mb-4">
-              {(['efectivo', 'tarjeta', 'yape', 'plin'] as MetodoPago[]).map((m) => (
-                <button key={m} onClick={() => setMetodo(m)}
-                  className={`py-2.5 rounded-xl text-xs font-bold capitalize transition-all ${metodo === m ? 'bg-cyan-500 text-black' : 'bg-[#21262d] border border-[#30363d] text-gray-400'}`}>{m}</button>
-              ))}
+              {(['efectivo', 'tarjeta', 'yape', 'plin'] as MetodoPago[]).map((m) => {
+                const deshabilitado = culqiActivo && !online && (m === 'yape' || m === 'plin')
+                return (
+                  <button key={m} onClick={() => !deshabilitado && setMetodo(m)} disabled={deshabilitado}
+                    title={deshabilitado ? 'Sin conexión: no se puede verificar un pago digital real' : undefined}
+                    className={`py-2.5 rounded-xl text-xs font-bold capitalize transition-all ${metodo === m ? 'bg-cyan-500 text-black' : 'bg-[#21262d] border border-[#30363d] text-gray-400'} ${deshabilitado ? 'opacity-30 cursor-not-allowed' : ''}`}>{m}</button>
+                )
+              })}
             </div>
             {metodo === 'efectivo' ? (
               <div className="mb-4">
@@ -434,6 +531,13 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
                   <span className="text-gray-400 text-sm">Vuelto</span>
                   <span className="text-green-400 font-bold text-lg">S/ {vuelto.toFixed(2)}</span>
                 </div>
+              </div>
+            ) : pagoDigitalDisponible ? (
+              <div className="mb-4">
+                <PagoDigitalCulqi monto={total} metodo={metodo as 'yape' | 'plin'} cajeroId={cajeroId} locationId={locationId}
+                  clienteNombre={clienteSel?.nombre}
+                  onConfirmado={(pagoId) => confirmar(pagoId)}
+                  onCancelar={() => setMetodo('efectivo')} />
               </div>
             ) : (
               <div className="mb-4">
@@ -450,7 +554,9 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
                 <div className="flex items-center gap-2 mb-2">
                   <select value={l.metodo} onChange={(e) => actualizarLinea(idx, { metodo: e.target.value as MetodoPago })}
                     className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-white capitalize focus:outline-none">
-                    {(['efectivo', 'tarjeta', 'yape', 'plin'] as MetodoPago[]).map((m) => <option key={m} value={m}>{m}</option>)}
+                    {(['efectivo', 'tarjeta', 'yape', 'plin'] as MetodoPago[])
+                      .filter((m) => !culqiActivo || (m !== 'yape' && m !== 'plin'))
+                      .map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                   <input type="number" value={l.monto || ''} onChange={(e) => actualizarLinea(idx, { monto: Number(e.target.value) || 0 })}
                     placeholder="Monto" className="w-24 bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-white focus:outline-none" />
@@ -474,9 +580,11 @@ function ModalPago({ total, subtotal, impuesto, cart, online, locationId, cajero
 
         {error && <p className="text-red-400 text-xs mb-3 bg-red-500/10 rounded-lg p-2">{error}</p>}
         {!online && <p className="text-orange-400 text-xs mb-3 bg-orange-500/10 rounded-lg p-2">Sin conexión: la venta se guardará y sincronizará automáticamente.</p>}
-        <button onClick={confirmar} disabled={guardando || (mixto && sumaLineas < total - 0.005)}
-          className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3.5 rounded-xl transition-all active:scale-[0.98]">
-          {guardando ? 'Procesando...' : '✓ Confirmar pago'}</button>
+        {!pagoDigitalDisponible && (
+          <button onClick={() => confirmar()} disabled={guardando || (mixto && sumaLineas < total - 0.005)}
+            className="w-full bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3.5 rounded-xl transition-all active:scale-[0.98]">
+            {guardando ? 'Procesando...' : '✓ Confirmar pago'}</button>
+        )}
       </div>
     </div>
   )

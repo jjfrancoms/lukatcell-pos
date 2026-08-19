@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { useConfig } from '../lib/config'
 import { useToast } from '../lib/toast'
 import BarcodeScanner from '../components/BarcodeScanner'
+import SubirImagenProducto from '../components/SubirImagenProducto'
 
 interface Categoria { id: string; nombre: string }
 interface Modelo { id: string; marca: string; modelo: string }
@@ -545,11 +546,7 @@ function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locati
                   className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
               </div>
             </div>
-            <div>
-              <label className="text-xs text-gray-500 font-semibold">URL de imagen</label>
-              <input value={imagenUrl} onChange={(e) => setImagenUrl(e.target.value)} placeholder="https://..."
-                className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-            </div>
+            <SubirImagenProducto valor={imagenUrl} onChange={setImagenUrl} />
           </div>
         )}
 
@@ -703,11 +700,7 @@ function ModalEditarProducto({ fila, categorias, modelos, onClose, onSaved, onAg
             <input type="number" min="0" step="0.01" value={precioBase} onChange={(e) => setPrecioBase(e.target.value)}
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
-          <div>
-            <label className="text-xs text-gray-500 font-semibold">URL de imagen</label>
-            <input value={imagenUrl} onChange={(e) => setImagenUrl(e.target.value)}
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-          </div>
+          <SubirImagenProducto valor={imagenUrl} onChange={setImagenUrl} />
         </div>
 
         <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Esta variante</p>

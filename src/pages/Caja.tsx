@@ -3,6 +3,7 @@ import { Clock, TrendingUp, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
+import { sumarMontos, restarMontos } from '../lib/money'
 import type { CashSession } from '../types'
 
 export default function Caja() {
@@ -30,11 +31,11 @@ export default function Caja() {
   useEffect(() => {
     if (!sesionActiva) return
     supabase.from('payments').select('monto, sale:sales!inner(cash_session_id)').eq('metodo', 'efectivo').eq('sale.cash_session_id', sesionActiva.id)
-      .then(({ data }) => setVentasEfectivo((data || []).reduce((s: number, p: any) => s + Number(p.monto), 0)))
+      .then(({ data }) => setVentasEfectivo(sumarMontos((data || []).map((p: any) => Number(p.monto)))))
   }, [sesionActiva])
 
-  const montoEsperado = sesionActiva ? sesionActiva.monto_inicial + ventasEfectivo : 0
-  const diferenciaPreview = montoContado ? Number(montoContado) - montoEsperado : null
+  const montoEsperado = sesionActiva ? sumarMontos([sesionActiva.monto_inicial, ventasEfectivo]) : 0
+  const diferenciaPreview = montoContado ? restarMontos(Number(montoContado), montoEsperado) : null
 
   const abrirTurno = async () => {
     if (!staff) return

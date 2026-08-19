@@ -4,7 +4,11 @@ import type { Configuracion } from '../types'
 
 const DEFAULT_CONFIG: Configuracion = {
   id: 1, igv_activo: true, igv_porcentaje: 18, negocio_nombre: 'LUKATCELL',
-  negocio_ruc: null, negocio_direccion: null, stock_minimo_default: 5, updated_at: '',
+  negocio_ruc: null, negocio_direccion: null, stock_minimo_default: 5,
+  permitir_stock_negativo: false, auto_imprimir_ticket: true, tamano_papel: '80mm',
+  nubefact_activo: false, nubefact_serie_boleta: 'BBB1', nubefact_serie_factura: 'FFF1',
+  culqi_activo: false,
+  updated_at: '',
 }
 
 interface ConfigContextValue {

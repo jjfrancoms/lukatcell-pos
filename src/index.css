@@ -45,7 +45,9 @@ input[type="number"] { -moz-appearance: textfield; }
 @media print {
   body * { visibility: hidden; }
   .print-area, .print-area * { visibility: visible; }
-  .print-area { position: fixed; top: 0; left: 0; width: 80mm; }
+  .print-area { position: fixed; top: 0; left: 0; }
+  .print-area.w-\[80mm\] { width: 80mm; }
+  .print-area.w-\[58mm\] { width: 58mm; }
   .no-print { display: none !important; }
   @page { margin: 0; }
 }

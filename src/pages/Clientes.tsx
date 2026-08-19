@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Plus, X, Search, Phone, Mail, ShoppingBag, User } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { sumarMontos } from '../lib/money'
 import type { Cliente } from '../types'
 
 interface CompraHistorial { id: string; fecha: string; total: number }
@@ -138,7 +139,7 @@ function ModalDetalleCliente({ cliente, onClose, onSaved }: { cliente: Cliente; 
     onSaved()
   }
 
-  const totalGastado = historial.reduce((s, h) => s + Number(h.total), 0)
+  const totalGastado = sumarMontos(historial.map((h) => Number(h.total)))
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-50 p-0 md:p-4">

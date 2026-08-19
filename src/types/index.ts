@@ -239,4 +239,5 @@ export interface OrdenServicio {
   fecha_entrega: string | null
   notas: string | null
   location_id: string | null
+  venta_id: string | null
 }

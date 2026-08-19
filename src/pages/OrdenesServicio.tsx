@@ -1,10 +1,15 @@
 import { useState, useEffect } from 'react'
-import { Plus, X, Wrench, Search, Printer, Phone } from 'lucide-react'
+import { Plus, X, Wrench, Search, Printer, Phone, CreditCard, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { useConfig } from '../lib/config'
+import { useOnlineStatus } from '../lib/offline'
+import { calcularTotalesCarrito } from '../lib/money'
 import { useToast } from '../lib/toast'
-import type { OrdenServicio, EstadoOrden } from '../types'
+import type { OrdenServicio, EstadoOrden, CartItem, Cliente, ProductVariant } from '../types'
 import ReciboOrden from '../components/ReciboOrden'
+import ReciboVenta from '../components/ReciboVenta'
+import ModalPago, { type ResultadoVenta } from '../components/ModalPago'
 
 const ESTADOS: { value: EstadoOrden; label: string; color: string }[] = [
   { value: 'recibido', label: 'Recibido', color: 'bg-gray-500/15 text-gray-300 border-gray-500/30' },
@@ -16,7 +21,9 @@ const ESTADOS: { value: EstadoOrden; label: string; color: string }[] = [
 ]
 
 export default function OrdenesServicio() {
-  const { staff } = useAuth()
+  const { staff, cashSessionId } = useAuth()
+  const { config } = useConfig()
+  const { online } = useOnlineStatus()
   const { showToast } = useToast()
   const [ordenes, setOrdenes] = useState<OrdenServicio[]>([])
   const [filtro, setFiltro] = useState<EstadoOrden | 'todos'>('todos')
@@ -25,6 +32,9 @@ export default function OrdenesServicio() {
   const [detalle, setDetalle] = useState<OrdenServicio | null>(null)
   const [imprimir, setImprimir] = useState<OrdenServicio | null>(null)
   const [loading, setLoading] = useState(true)
+  const [cobrarOrden, setCobrarOrden] = useState<OrdenServicio | null>(null)
+  const [servicioVariant, setServicioVariant] = useState<ProductVariant | null>(null)
+  const [reciboVenta, setReciboVenta] = useState<(ResultadoVenta & { cajeroNombre: string | null }) | null>(null)
 
   const cargar = async () => {
     const { data } = await supabase.from('ordenes_servicio').select('*').order('numero', { ascending: false })
@@ -32,6 +42,21 @@ export default function OrdenesServicio() {
     setLoading(false)
   }
   useEffect(() => { cargar() }, [])
+
+  // Producto genérico "Servicio técnico" (creado por la migración) — es la variante
+  // que se usa para cobrar cualquier orden; el precio real es el costo final de cada
+  // orden, no el precio de este producto.
+  useEffect(() => {
+    supabase.from('products').select('id, nombre, sku, precio_base, imagen_url').eq('nombre', 'Servicio técnico').maybeSingle()
+      .then(async ({ data: prod }) => {
+        if (!prod) return
+        const { data: variant } = await supabase.from('product_variants')
+          .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras').eq('product_id', prod.id).limit(1).maybeSingle()
+        if (variant) setServicioVariant({ ...variant, product: prod } as unknown as ProductVariant)
+      })
+  }, [])
+
+  const IGV = config.igv_activo ? config.igv_porcentaje / 100 : 0
 
   const filtradas = ordenes.filter((o) => {
     if (filtro !== 'todos' && o.estado !== filtro) return false
@@ -84,7 +109,10 @@ export default function OrdenesServicio() {
               </div>
               <p className="text-xs text-gray-400 mb-1">{[o.equipo_marca, o.equipo_modelo].filter(Boolean).join(' ') || 'Equipo no especificado'}</p>
               <p className="text-xs text-gray-500 line-clamp-2">{o.problema}</p>
-              <p className="text-[10px] text-gray-600 mt-2">{new Date(o.fecha_recepcion).toLocaleDateString('es-PE')}</p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-[10px] text-gray-600">{new Date(o.fecha_recepcion).toLocaleDateString('es-PE')}</p>
+                {o.venta_id && <span className="flex items-center gap-1 text-[10px] font-bold text-green-400"><CheckCircle2 size={11} /> Pagado</span>}
+              </div>
             </button>
           )
         })}
@@ -100,9 +128,38 @@ export default function OrdenesServicio() {
       {detalle && (
         <ModalDetalleOrden orden={detalle} onClose={() => setDetalle(null)}
           onUpdated={(o) => { setDetalle(null); cargar(); setImprimir(o); showToast('Orden actualizada', 'success') }}
-          onImprimir={() => setImprimir(detalle)} />
+          onImprimir={() => setImprimir(detalle)}
+          onCobrar={servicioVariant ? (o) => { setCobrarOrden(o); setDetalle(null); cargar() } : undefined} />
       )}
       {imprimir && <ReciboOrden orden={imprimir} onClose={() => setImprimir(null)} />}
+
+      {cobrarOrden && servicioVariant && (() => {
+        const costo = Number(cobrarOrden.costo_final) || 0
+        const cart: CartItem[] = [{ variant: servicioVariant, cantidad: 1, precio_unitario: costo, descuento: 0 }]
+        const { subtotal, impuesto, total } = calcularTotalesCarrito(cart, IGV)
+        const clienteInicial: Cliente | null = cobrarOrden.cliente_id
+          ? { id: cobrarOrden.cliente_id, nombre: cobrarOrden.cliente_nombre, telefono: cobrarOrden.cliente_telefono, email: null, notas: null, created_at: '' }
+          : null
+        return (
+          <ModalPago total={total} subtotal={subtotal} impuesto={impuesto} cart={cart} online={online}
+            nubefactActivo={config.nubefact_activo} culqiActivo={config.culqi_activo}
+            locationId={staff?.location_id ?? null} cajeroId={staff?.id ?? null} cashSessionId={cashSessionId}
+            clienteInicial={clienteInicial} titulo={`Cobrar orden #${cobrarOrden.numero}`}
+            onClose={() => setCobrarOrden(null)}
+            onConfirm={(res) => {
+              setCobrarOrden(null)
+              if (!res) return
+              // Una venta 'pendiente-sync' (offline) aún no tiene id real — se vincula
+              // cuando el propio flujo de sincronización la registre más adelante.
+              if (res.saleId !== 'pendiente-sync') {
+                supabase.from('ordenes_servicio').update({ venta_id: res.saleId }).eq('id', cobrarOrden.id).then(() => cargar())
+              }
+              setReciboVenta({ ...res, cajeroNombre: staff?.nombre ?? null })
+              if (res.saleId === 'pendiente-sync') showToast('Cobro guardado sin conexión, se sincronizará automáticamente', 'info')
+            }} />
+        )
+      })()}
+      {reciboVenta && <ReciboVenta {...reciboVenta} autoImprimir={config.auto_imprimir_ticket} onClose={() => setReciboVenta(null)} />}
     </div>
   )
 }
@@ -188,21 +245,31 @@ function ModalNuevaOrden({ locationId, onClose, onCreated }: { locationId: strin
   )
 }
 
-function ModalDetalleOrden({ orden, onClose, onUpdated, onImprimir }: { orden: OrdenServicio; onClose: () => void; onUpdated: (o: OrdenServicio) => void; onImprimir: () => void }) {
+function ModalDetalleOrden({ orden, onClose, onUpdated, onImprimir, onCobrar }: { orden: OrdenServicio; onClose: () => void; onUpdated: (o: OrdenServicio) => void; onImprimir: () => void; onCobrar?: (o: OrdenServicio) => void }) {
   const [estado, setEstado] = useState<EstadoOrden>(orden.estado)
   const [diagnostico, setDiagnostico] = useState(orden.diagnostico || '')
   const [costoFinal, setCostoFinal] = useState(orden.costo_final != null ? String(orden.costo_final) : '')
   const [notas, setNotas] = useState(orden.notas || '')
   const [guardando, setGuardando] = useState(false)
+  const yaPagada = !!orden.venta_id
+  const puedeCobrar = !yaPagada && Number(costoFinal) > 0
 
-  const guardar = async () => {
+  const guardar = async (opts?: { silencioso?: boolean }): Promise<OrdenServicio | null> => {
     setGuardando(true)
     const patch: Record<string, unknown> = { estado, diagnostico: diagnostico.trim() || null, notas: notas.trim() || null }
     if (costoFinal) patch.costo_final = Number(costoFinal)
     if (estado === 'entregado' && !orden.fecha_entrega) patch.fecha_entrega = new Date().toISOString()
     const { data } = await supabase.from('ordenes_servicio').update(patch).eq('id', orden.id).select().single()
     setGuardando(false)
-    onUpdated(data || orden)
+    if (!opts?.silencioso) onUpdated(data || orden)
+    return data
+  }
+
+  // Guarda cualquier cambio pendiente (ej. un costo final recién tecleado) antes de
+  // cobrar, para que el monto que se cobra sea siempre el que se ve en pantalla.
+  const handleCobrar = async () => {
+    const actualizado = await guardar({ silencioso: true })
+    if (actualizado && onCobrar) onCobrar(actualizado)
   }
 
   return (
@@ -234,19 +301,28 @@ function ModalDetalleOrden({ orden, onClose, onUpdated, onImprimir }: { orden: O
           </div>
           <div>
             <label className="text-xs text-gray-500 font-semibold">Costo final (S/)</label>
-            <input type="number" value={costoFinal} onChange={(e) => setCostoFinal(e.target.value)}
-              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            <input type="number" value={costoFinal} onChange={(e) => setCostoFinal(e.target.value)} disabled={yaPagada}
+              className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50" />
+            {yaPagada
+              ? <p className="flex items-center gap-1.5 text-xs text-green-400 mt-1.5"><CheckCircle2 size={13} /> Ya cobrada — el monto no se puede editar</p>
+              : onCobrar && <p className="text-xs text-gray-600 mt-1.5">Guarda el costo final y luego usa "Cobrar" para generar el comprobante de pago.</p>}
           </div>
           <div>
             <label className="text-xs text-gray-500 font-semibold">Notas internas</label>
             <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2}
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none" />
           </div>
+          {onCobrar && (
+            <button onClick={handleCobrar} disabled={!puedeCobrar || guardando}
+              className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-r from-green-500 to-green-600 disabled:opacity-30 disabled:from-[#21262d] disabled:to-[#21262d] disabled:text-gray-600 text-black font-bold py-3 rounded-xl transition-all active:scale-[0.98] text-sm">
+              <CreditCard size={15} /> {yaPagada ? 'Ya cobrada' : 'Cobrar orden'}
+            </button>
+          )}
           <div className="flex gap-2 pt-1">
             <button onClick={onImprimir} className="flex-1 flex items-center justify-center gap-1.5 bg-[#21262d] border border-[#30363d] text-gray-300 font-semibold py-3 rounded-xl text-sm">
               <Printer size={15} /> Comprobante
             </button>
-            <button onClick={guardar} disabled={guardando}
+            <button onClick={() => guardar()} disabled={guardando}
               className="flex-1 bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3 rounded-xl transition-all active:scale-[0.98] text-sm">
               {guardando ? 'Guardando...' : 'Guardar cambios'}
             </button>

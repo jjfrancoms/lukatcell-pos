@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth'
 const PENDING_KEY = 'lukatcell_pending_admin'
 
 export default function Login() {
-  const { session, staff, signIn, refreshStaff } = useAuth()
+  const { session, staff, refreshStaff } = useAuth()
   const [hayStaff, setHayStaff] = useState<boolean | null>(null)
   const [modo, setModo] = useState<'login' | 'signup'>('login')
   const [username, setUsername] = useState('')
@@ -44,10 +44,23 @@ export default function Login() {
 
   const submitLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setCargando(true)
-    const { data: email } = await supabase.rpc('email_por_username', { p_username: username.trim() })
-    if (!email) { setError('Usuario o contraseña incorrectos'); setCargando(false); return }
-    const err = await signIn(email, password)
-    if (err) setError('Usuario o contraseña incorrectos')
+
+    const { data, error: functionError } = await supabase.functions.invoke('login-por-usuario', {
+      body: { username: username.trim(), password },
+    })
+
+    if (functionError || !data?.access_token || !data?.refresh_token) {
+      setError('Usuario o contraseña incorrectos')
+      setCargando(false)
+      return
+    }
+
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    })
+
+    if (sessionError) setError('Usuario o contraseña incorrectos')
     setCargando(false)
   }
 

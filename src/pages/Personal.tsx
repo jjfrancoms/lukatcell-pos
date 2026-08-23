@@ -279,13 +279,15 @@ function ModalPersonal({ staff, turnos, asignaciones = [], onClose, onSaved }: {
   }
 
   const guardarProgramacion = async (staffId: string) => {
-    const { error: deleteError } = await supabase.from('staff_turnos').delete().eq('staff_id', staffId)
-    if (deleteError) throw deleteError
-    const filas = Object.entries(programacion).map(([dia, turnoId]) => ({ staff_id: staffId, turno_id: turnoId, dia_semana: Number(dia), activo: true }))
-    if (filas.length) {
-      const { error: insertError } = await supabase.from('staff_turnos').insert(filas)
-      if (insertError) throw insertError
-    }
+    const payload = Object.entries(programacion).map(([dia, turnoId]) => ({
+      dia_semana: Number(dia),
+      turno_id: turnoId,
+    }))
+    const { error: programacionError } = await supabase.rpc('reprogramar_staff_turnos', {
+      p_staff_id: staffId,
+      p_programacion: payload,
+    })
+    if (programacionError) throw programacionError
   }
 
   const guardar = async () => {

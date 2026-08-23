@@ -42,6 +42,13 @@ input[type="number"] { -moz-appearance: textfield; }
   box-shadow: 0 0 0 2px rgb(23 191 224 / 0.2);
 }
 
+/* Permisos visuales de inventario: el backend sigue siendo la autoridad real. */
+.role-vendedor button[aria-label^="Registrar entrada de stock"],
+.role-vendedor button[aria-label^="Registrar salida de stock"],
+.role-vendedor button[title="Escanear código de barras con la cámara"] {
+  display: none !important;
+}
+
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 

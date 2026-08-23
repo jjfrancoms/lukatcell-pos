@@ -13,6 +13,7 @@ import OrdenesServicio from './pages/OrdenesServicio'
 import Clientes from './pages/Clientes'
 import Personal from './pages/Personal'
 import MiJornada from './pages/MiJornada'
+import DashboardAdmin from './pages/DashboardAdmin'
 import Configuracion from './pages/Configuracion'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -68,6 +69,7 @@ export default function App() {
                 <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
                 <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
                 <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
+                <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
                 <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
                 <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
                 <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />

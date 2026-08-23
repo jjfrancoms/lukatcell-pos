@@ -1,13 +1,7 @@
 // Edge Function: emitir-comprobante
 // Genera la Boleta/Factura electrónica en Nubefact para una venta ya registrada.
-// Se invoca de forma asíncrona (trigger de Postgres al insertar en
-// comprobantes_electronicos) — la venta ya está guardada y confirmada antes de
-// que esto corra, así que un fallo aquí NUNCA cancela ni afecta la venta.
-//
-// Variables de entorno requeridas:
-//   NUBEFACT_URL   -> la URL completa que Nubefact te asigna (incluye tu "url_token"),
-//                      ej: https://api.nubefact.com/api/v1/12345
-//   NUBEFACT_TOKEN -> tu api_token, del panel de Nubefact (Configuración -> API)
+// Se invoca de forma asíncrona desde Postgres con service_role; los reintentos
+// manuales desde la app solo se permiten a administradores activos.
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -25,22 +19,25 @@ const NUBEFACT_TOKEN = Deno.env.get("NUBEFACT_TOKEN")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-// verify_jwt está desactivado (el trigger de Postgres invoca esto con el
-// service_role_key, no con un JWT de usuario), así que la función valida el
-// llamante ella misma: o trae exactamente el service_role_key (trigger), o
-// trae un JWT de un usuario ya autenticado en la app (reintento manual desde
-// Reportes). Cualquier otro caso se rechaza — si no, cualquiera con la URL
-// pública podría forzar reintentos y gastar cuota de la API de Nubefact.
 async function llamanteAutorizado(req: Request): Promise<boolean> {
   const auth = req.headers.get("Authorization") || "";
   const token = auth.replace(/^Bearer\s+/i, "");
   if (!token) return false;
   if (token === SUPABASE_SERVICE_ROLE_KEY) return true;
+
   const clienteUsuario = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: auth } },
   });
   const { data, error } = await clienteUsuario.auth.getUser(token);
-  return !error && !!data.user;
+  if (error || !data.user) return false;
+
+  const { data: staff, error: staffError } = await supabase
+    .from("staff")
+    .select("rol, activo")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
+
+  return !staffError && !!staff && staff.rol === "administrador" && staff.activo === true;
 }
 
 interface NubefactItem {
@@ -150,25 +147,15 @@ function json(body: unknown, status = 200) {
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
-  }
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
 
-  if (!(await llamanteAutorizado(req))) {
-    return json({ error: "No autorizado" }, 401);
-  }
+  if (!(await llamanteAutorizado(req))) return json({ error: "No autorizado" }, 401);
 
   let body: { comprobante_id?: string };
-  try {
-    body = await req.json();
-  } catch {
-    return json({ error: "Body inválido" }, 400);
-  }
+  try { body = await req.json(); } catch { return json({ error: "Body inválido" }, 400); }
 
   const comprobanteId = body.comprobante_id;
-  if (!comprobanteId) {
-    return json({ error: "Falta comprobante_id" }, 400);
-  }
+  if (!comprobanteId) return json({ error: "Falta comprobante_id" }, 400);
 
   const { data: comprobante, error: errComprobante } = await supabase
     .from("comprobantes_electronicos")
@@ -176,9 +163,7 @@ Deno.serve(async (req: Request) => {
     .eq("id", comprobanteId)
     .single();
 
-  if (errComprobante || !comprobante) {
-    return json({ error: "Comprobante no encontrado" }, 404);
-  }
+  if (errComprobante || !comprobante) return json({ error: "Comprobante no encontrado" }, 404);
 
   if (!NUBEFACT_URL || !NUBEFACT_TOKEN) {
     await supabase.from("comprobantes_electronicos").update({
@@ -192,7 +177,6 @@ Deno.serve(async (req: Request) => {
 
   try {
     const payload = await construirPayload(comprobante.sale_id as string, comprobante);
-
     const response = await fetch(NUBEFACT_URL, {
       method: "POST",
       headers: {
@@ -203,7 +187,6 @@ Deno.serve(async (req: Request) => {
     });
 
     const resultado = await response.json();
-
     if (!response.ok || resultado.errors) {
       const mensajeError = resultado.errors || `HTTP ${response.status}`;
       await supabase.from("comprobantes_electronicos").update({

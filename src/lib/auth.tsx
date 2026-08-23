@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import type { Staff } from '../types'
+import type { JornadaActual, Staff } from '../types'
 
 interface AuthContextValue {
   session: Session | null
@@ -9,10 +9,15 @@ interface AuthContextValue {
   loading: boolean
   isAdmin: boolean
   cashSessionId: string | null
+  jornada: JornadaActual | null
+  jornadaActiva: boolean
   signIn: (email: string, password: string) => Promise<string | null>
   signOut: () => Promise<void>
   refreshStaff: () => Promise<void>
   refreshCashSession: () => Promise<void>
+  refreshJornada: () => Promise<void>
+  registrarEntrada: () => Promise<string | null>
+  registrarSalida: () => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -22,17 +27,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [staff, setStaff] = useState<Staff | null>(null)
   const [loading, setLoading] = useState(true)
   const [cashSessionId, setCashSessionId] = useState<string | null>(null)
+  const [jornada, setJornada] = useState<JornadaActual | null>(null)
+
+  const cargarJornada = async () => {
+    const { data, error } = await supabase.rpc('mi_estado_jornada')
+    if (error) { setJornada(null); return }
+    const fila = Array.isArray(data) ? data[0] : data
+    setJornada(fila ?? null)
+  }
 
   const cargarStaff = async (userId: string) => {
     const { data } = await supabase.from('staff').select('*').eq('user_id', userId).maybeSingle()
     if (data && !data.activo) {
-      setStaff(null); setCashSessionId(null)
+      setStaff(null); setCashSessionId(null); setJornada(null)
       await supabase.auth.signOut()
       return
     }
     setStaff(data)
-    if (data) await cargarCajaActiva(data.id)
-    else setCashSessionId(null)
+    if (data) await Promise.all([cargarCajaActiva(data.id), cargarJornada()])
+    else { setCashSessionId(null); setJornada(null) }
   }
 
   const cargarCajaActiva = async (staffId: string) => {
@@ -49,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       setSession(newSession)
       if (newSession) await cargarStaff(newSession.user.id)
-      else { setStaff(null); setCashSessionId(null) }
+      else { setStaff(null); setCashSessionId(null); setJornada(null) }
     })
     return () => sub.subscription.unsubscribe()
   }, [])
@@ -60,12 +73,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signOut = async () => { await supabase.auth.signOut() }
-
   const refreshStaff = async () => { if (session) await cargarStaff(session.user.id) }
   const refreshCashSession = async () => { if (staff) await cargarCajaActiva(staff.id) }
+  const refreshJornada = async () => { if (staff) await cargarJornada() }
+
+  const registrarEntrada = async () => {
+    const { error } = await supabase.rpc('registrar_mi_entrada')
+    if (!error) await cargarJornada()
+    return error?.message ?? null
+  }
+
+  const registrarSalida = async () => {
+    const { error } = await supabase.rpc('registrar_mi_salida')
+    if (!error) await cargarJornada()
+    return error?.message ?? null
+  }
+
+  const jornadaActiva = Boolean(jornada?.entrada && !jornada?.salida)
 
   return (
-    <AuthContext.Provider value={{ session, staff, loading, isAdmin: staff?.rol === 'administrador', cashSessionId, signIn, signOut, refreshStaff, refreshCashSession }}>
+    <AuthContext.Provider value={{ session, staff, loading, isAdmin: staff?.rol === 'administrador', cashSessionId, jornada, jornadaActiva, signIn, signOut, refreshStaff, refreshCashSession, refreshJornada, registrarEntrada, registrarSalida }}>
       {children}
     </AuthContext.Provider>
   )

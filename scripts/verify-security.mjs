@@ -29,8 +29,9 @@ assert(bootstrap.includes('SUPABASE_SERVICE_ROLE_KEY'), 'estado-bootstrap consul
 assert(linkLogin.includes('SUPABASE_SERVICE_ROLE_KEY'), 'vincular-login-personal usa privilegios solo en servidor')
 assert(linkLogin.includes("rol !== 'administrador'"), 'vincular-login-personal exige administrador')
 assert(personal.includes("functions.invoke('crear-personal'"), 'Alta de personal usa Edge Function administrativa')
+assert(personal.includes("functions.invoke('vincular-login-personal'"), 'Personal vincula accesos pendientes mediante Edge Function segura')
 assert(notify.includes('SUPABASE_SERVICE_ROLE_KEY'), 'notificar-estado exige autenticacion propia')
-assert(notify.includes("token !== SERVICE_ROLE_KEY"), 'notificar-estado rechaza tokens ajenos al service role')
+assert(notify.includes('token === SUPABASE_SERVICE_ROLE_KEY'), 'notificar-estado solo acepta service role')
 
 if (process.exitCode) process.exit(process.exitCode)
 console.log('Security regression checks passed.')

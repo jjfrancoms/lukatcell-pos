@@ -29,7 +29,8 @@ export default function MiJornada() {
 
   const cargarPersonal = async () => {
     if (!isAdmin) return
-    const { data } = await supabase.from('personal_activo_hoy').select('*').order('nombre')
+    const { data, error } = await supabase.rpc('personal_activo_hoy')
+    if (error) { setPersonal([]); return }
     setPersonal((data || []) as PersonalHoy[])
   }
 

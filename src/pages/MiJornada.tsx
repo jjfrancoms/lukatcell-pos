@@ -21,6 +21,15 @@ interface PersonalHoy {
 const hora = (iso: string | null) => iso ? new Date(iso).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '—'
 const corta = (t: string | null) => t ? t.slice(0, 5) : '—'
 
+function estadoPersonal(p: PersonalHoy) {
+  if (p.estado === 'descanso') return { label: 'Descanso', clase: 'text-violet-400', detalle: 'Día libre' }
+  if (p.estado === 'pendiente') return { label: 'Pendiente', clase: 'text-amber-400', detalle: 'Aún no marca entrada' }
+  if (p.estado === 'tarde' && p.entrada && !p.salida) return { label: `Trabajando · tarde ${p.minutos_tarde || 0} min`, clase: 'text-orange-400', detalle: `${hora(p.entrada)} → —` }
+  if ((p.estado === 'presente' || p.estado === 'tarde') && p.entrada && !p.salida) return { label: 'Trabajando', clase: 'text-green-400', detalle: `${hora(p.entrada)} → —` }
+  if (p.estado === 'salio' || (p.entrada && p.salida)) return { label: 'Salió', clase: 'text-gray-400', detalle: `${hora(p.entrada)} → ${hora(p.salida)}` }
+  return { label: 'Sin entrada', clase: 'text-gray-600', detalle: '—' }
+}
+
 export default function MiJornada() {
   const { jornada, jornadaActiva, isAdmin, cashSessionId, registrarEntrada, registrarSalida, refreshJornada } = useAuth()
   const { showToast } = useToast()
@@ -113,16 +122,18 @@ export default function MiJornada() {
           <div className="flex items-center gap-2 mb-3"><Users size={18} className="text-cyan-400" /><h2 className="font-display font-bold text-white">Personal de hoy</h2></div>
           <div className="bg-[#161b22] border border-[#30363d] rounded-2xl overflow-hidden">
             {personal.map((p) => {
-              const trabajando = Boolean(p.entrada && !p.salida)
+              const estado = estadoPersonal(p)
               return (
                 <div key={p.staff_id} className="p-4 border-b border-[#30363d] last:border-b-0 flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <p className="font-semibold text-sm text-white truncate">{p.nombre}</p>
-                    <p className="text-xs text-gray-500 capitalize">{p.puesto || p.rol} · {p.turno_nombre || 'sin turno'} {p.hora_inicio ? `${corta(p.hora_inicio)}–${corta(p.hora_fin)}` : ''}</p>
+                    <p className="text-xs text-gray-500 capitalize">
+                      {p.puesto || p.rol} · {p.turno_nombre ? `${p.turno_nombre} ${corta(p.hora_inicio)}–${corta(p.hora_fin)}` : 'descanso'}
+                    </p>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className={`text-xs font-bold ${trabajando ? 'text-green-400' : p.entrada ? 'text-gray-400' : 'text-gray-600'}`}>{trabajando ? 'Trabajando' : p.entrada ? 'Salió' : 'Sin entrada'}</p>
-                    <p className="text-[10px] text-gray-500">{p.entrada ? `${hora(p.entrada)} → ${hora(p.salida)}` : '—'}</p>
+                    <p className={`text-xs font-bold ${estado.clase}`}>{estado.label}</p>
+                    <p className="text-[10px] text-gray-500">{estado.detalle}</p>
                   </div>
                 </div>
               )

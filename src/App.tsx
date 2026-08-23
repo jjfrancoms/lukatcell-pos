@@ -12,6 +12,7 @@ import Reportes from './pages/Reportes'
 import OrdenesServicio from './pages/OrdenesServicio'
 import Clientes from './pages/Clientes'
 import Personal from './pages/Personal'
+import MiJornada from './pages/MiJornada'
 import Configuracion from './pages/Configuracion'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,7 @@ export default function App() {
               <Route path="/login" element={<Login />} />
               <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
                 <Route index element={<Venta />} />
+                <Route path="jornada" element={<MiJornada />} />
                 <Route path="caja" element={<Caja />} />
                 <Route path="inventario" element={<Inventario />} />
                 <Route path="ordenes" element={<OrdenesServicio />} />

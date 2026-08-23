@@ -1,0 +1,14 @@
+alter function public.ajustar_stock(uuid, uuid, integer, text, uuid) set search_path = public;
+alter function public.buscar_por_barcode(text) set search_path = public;
+alter function public.buscar_variantes(text) set search_path = public;
+alter function public.calcular_diferencia_caja() set search_path = public;
+alter function public.crear_primer_admin(text, text) set search_path = public;
+alter function public.email_por_username(text) set search_path = public;
+alter function public.hay_staff() set search_path = public;
+alter function public.obtener_favoritos() set search_path = public;
+alter function public.resumen_ganancias(timestamp with time zone, timestamp with time zone) set search_path = public;
+alter function public.set_updated_at() set search_path = public;
+alter function public.top_productos_ganancia(timestamp with time zone, timestamp with time zone, integer) set search_path = public;
+alter function public.validar_stock(uuid, uuid, integer) set search_path = public;
+alter function public.variantes_actualizadas_desde(timestamp with time zone) set search_path = public;
+alter function public.variantes_por_categoria(uuid) set search_path = public;

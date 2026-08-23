@@ -6,6 +6,12 @@ import { useAuth } from '../lib/auth'
 
 const PENDING_KEY = 'lukatcell_pending_admin'
 
+async function consultarHayStaff(): Promise<boolean | null> {
+  const { data, error } = await supabase.functions.invoke('estado-bootstrap')
+  if (error || typeof data?.hayStaff !== 'boolean') return null
+  return data.hayStaff
+}
+
 export default function Login() {
   const { session, staff, refreshStaff } = useAuth()
   const [hayStaff, setHayStaff] = useState<boolean | null>(null)
@@ -20,14 +26,18 @@ export default function Login() {
   const [bootstrapping, setBootstrapping] = useState(false)
 
   useEffect(() => {
-    supabase.rpc('hay_staff').then(({ data }) => setHayStaff(!!data))
+    consultarHayStaff().then((existe) => {
+      // Ante un fallo de red no mostramos el bootstrap de administrador por seguridad.
+      setHayStaff(existe ?? true)
+    })
   }, [])
 
   useEffect(() => {
     if (!session || staff || bootstrapping) return
     const tryBootstrap = async () => {
-      const { data: existe } = await supabase.rpc('hay_staff')
-      if (existe) return
+      const existe = await consultarHayStaff()
+      if (existe !== false) return
+
       setBootstrapping(true)
       const pendiente = JSON.parse(localStorage.getItem(PENDING_KEY) || 'null')
       const nombrePendiente = pendiente?.nombre || 'Administrador'

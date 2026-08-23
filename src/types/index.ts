@@ -57,14 +57,59 @@ export interface CashSession {
   diferencia: number | null
 }
 
+export type StaffRol = 'cajero' | 'administrador'
+export type StaffPuesto = 'jefa' | 'vendedor' | 'tecnico' | 'encargado'
+
 export interface Staff {
   id: string
   user_id: string
   nombre: string
-  rol: 'cajero' | 'administrador'
+  rol: StaffRol
+  puesto: StaffPuesto | null
   location_id: string
   activo: boolean
   username: string
+}
+
+export interface Turno {
+  id: string
+  nombre: string
+  hora_inicio: string
+  hora_fin: string
+  cruza_medianoche: boolean
+  tolerancia_minutos: number
+  activo: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+export interface StaffTurno {
+  id: string
+  staff_id: string
+  turno_id: string
+  dia_semana: number
+  fecha_desde: string | null
+  fecha_hasta: string | null
+  activo: boolean
+  created_at?: string
+  turno?: Turno | null
+}
+
+export type EstadoAsistencia = 'pendiente' | 'presente' | 'tarde' | 'ausente' | 'justificado'
+
+export interface Asistencia {
+  id: string
+  staff_id: string
+  turno_id: string | null
+  fecha: string
+  entrada: string | null
+  salida: string | null
+  estado: EstadoAsistencia
+  minutos_tarde: number
+  observacion: string | null
+  registrado_por: string | null
+  created_at: string
+  updated_at: string
 }
 
 export type MetodoPago = 'efectivo' | 'tarjeta' | 'yape' | 'plin'

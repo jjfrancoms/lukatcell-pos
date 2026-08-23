@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarDays, Clock3, Pencil, Plus, ShieldCheck, User as UserIcon, Users, Wrench, X } from 'lucide-react'
+import { AlertTriangle, CalendarDays, Clock3, KeyRound, Pencil, Plus, ShieldCheck, User as UserIcon, Users, Wrench, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
@@ -51,6 +51,7 @@ export default function Personal() {
   const [loading, setLoading] = useState(true)
   const [nuevoOpen, setNuevoOpen] = useState(false)
   const [editando, setEditando] = useState<Staff | null>(null)
+  const [accesoPara, setAccesoPara] = useState<ConfigPendiente | null>(null)
 
   const cargar = async () => {
     setLoading(true)
@@ -124,12 +125,19 @@ export default function Personal() {
                         {p.falta_horario && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/20">Sin horario</span>}
                       </div>
                     </div>
-                    <button onClick={() => {
-                      const encontrado = lista.find((s) => s.id === p.staff_id)
-                      if (encontrado) setEditando(encontrado)
-                    }} className="self-start sm:self-auto px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#21262d] text-gray-300 border border-[#30363d] hover:text-white">
-                      Revisar
-                    </button>
+                    <div className="flex gap-2 self-start sm:self-auto">
+                      {p.falta_login && (
+                        <button onClick={() => setAccesoPara(p)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/25 hover:bg-cyan-500/20">
+                          <KeyRound size={13} /> Crear acceso
+                        </button>
+                      )}
+                      <button onClick={() => {
+                        const encontrado = lista.find((s) => s.id === p.staff_id)
+                        if (encontrado) setEditando(encontrado)
+                      }} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#21262d] text-gray-300 border border-[#30363d] hover:text-white">
+                        Revisar
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -193,6 +201,57 @@ export default function Personal() {
 
       {nuevoOpen && <ModalPersonal turnos={turnos} onClose={() => setNuevoOpen(false)} onSaved={() => { setNuevoOpen(false); cargar(); showToast('Personal creado y programado', 'success') }} />}
       {editando && <ModalPersonal staff={editando} turnos={turnos} asignaciones={turnosPorStaff.get(editando.id) || []} onClose={() => setEditando(null)} onSaved={() => { setEditando(null); cargar(); showToast('Personal actualizado', 'success') }} />}
+      {accesoPara && <ModalCrearAcceso pendiente={accesoPara} onClose={() => setAccesoPara(null)} onSaved={async () => { setAccesoPara(null); await cargar(); showToast('Acceso creado y vinculado', 'success') }} />}
+    </div>
+  )
+}
+
+function ModalCrearAcceso({ pendiente, onClose, onSaved }: { pendiente: ConfigPendiente; onClose: () => void; onSaved: () => void }) {
+  const [correo, setCorreo] = useState('')
+  const [password, setPassword] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState('')
+
+  const crear = async () => {
+    setError('')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo.trim())) { setError('Ingresa un correo válido'); return }
+    if (password.length < 6) { setError('La contraseña temporal debe tener al menos 6 caracteres'); return }
+    setGuardando(true)
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('vincular-login-personal', {
+        body: { staff_id: pendiente.staff_id, correo: correo.trim(), password },
+      })
+      if (invokeError || data?.error) throw new Error(data?.error || invokeError?.message || 'No se pudo crear el acceso')
+      onSaved()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo crear el acceso')
+    } finally {
+      setGuardando(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end md:items-center justify-center z-[60] p-0 md:p-4">
+      <div className="bg-[#161b22] rounded-t-2xl md:rounded-2xl w-full max-w-md p-5 border border-[#30363d] shadow-2xl relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-500 hover:text-white" aria-label="Cerrar"><X size={20} /></button>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-10 h-10 rounded-xl bg-cyan-500/15 flex items-center justify-center"><KeyRound size={18} className="text-cyan-400" /></div>
+          <div>
+            <h3 className="font-bold text-white">Crear acceso</h3>
+            <p className="text-xs text-gray-500">{pendiente.nombre} · @{pendiente.username}</p>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mb-4">Crea la cuenta Auth para este perfil existente. El usuario del POS seguirá siendo <strong className="text-white">{pendiente.username}</strong>.</p>
+        <Campo label="Correo de acceso"><input type="email" value={correo} onChange={(e) => setCorreo(e.target.value)} className="input-personal" placeholder="persona@correo.com" /></Campo>
+        <div className="mt-3"><Campo label="Contraseña temporal"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={6} className="input-personal" /></Campo></div>
+        {error && <p className="text-red-400 text-xs bg-red-500/10 rounded-lg p-2 mt-4">{error}</p>}
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 bg-[#21262d] text-gray-300 border border-[#30363d] font-semibold py-3 rounded-xl text-sm">Cancelar</button>
+          <button onClick={crear} disabled={guardando || !correo.trim() || password.length < 6} className="flex-1 bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-3 rounded-xl text-sm">
+            {guardando ? 'Creando...' : 'Crear acceso'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

@@ -62,7 +62,7 @@ export default function App() {
                 <Route path="inventario" element={<Inventario />} />
                 <Route path="ordenes" element={<OrdenesServicio />} />
                 <Route path="clientes" element={<Clientes />} />
-                <Route path="reportes" element={<Reportes />} />
+                <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
                 <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
                 <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />
               </Route>

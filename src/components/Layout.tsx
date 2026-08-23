@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
 const baseNavItems = [
+  { to: '/jornada', label: 'Mi jornada', icon: Clock3 },
   { to: '/', label: 'Venta', icon: ShoppingCart },
   { to: '/caja', label: 'Caja', icon: Wallet },
   { to: '/inventario', label: 'Inventario', icon: Package },
@@ -20,7 +21,7 @@ export default function Layout() {
     if (stored !== null) return stored === '1'
     return window.innerWidth < 1024
   })
-  const { staff, isAdmin, cashSessionId, signOut } = useAuth()
+  const { staff, isAdmin, cashSessionId, jornadaActiva, signOut } = useAuth()
   const { online } = useOnlineStatus()
   const [pendientes, setPendientes] = useState(0)
   const [fallidas, setFallidas] = useState(0)
@@ -49,11 +50,19 @@ export default function Layout() {
     sincronizarVentasPendientes(true).then(() => { actualizarContador(); setReintentandoManual(false) })
   }
 
-  const TurnoBadge = ({ compact }: { compact?: boolean }) => (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId ? 'text-green-400' : 'text-gray-500'}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${cashSessionId ? 'bg-green-400' : 'bg-gray-500'}`} />
-      {compact ? (cashSessionId ? 'Turno abierto' : 'Turno cerrado') : (cashSessionId ? 'Turno abierto' : 'Sin turno abierto')}
-    </span>
+  const EstadoBadge = ({ compact }: { compact?: boolean }) => (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${jornadaActiva ? 'text-green-400' : 'text-gray-500'}`}>
+        <span className={`w-1.5 h-1.5 rounded-full ${jornadaActiva ? 'bg-green-400' : 'bg-gray-500'}`} />
+        {compact ? (jornadaActiva ? 'En jornada' : 'Fuera de jornada') : (jornadaActiva ? 'Jornada activa' : 'Sin jornada activa')}
+      </span>
+      {!compact && (
+        <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId ? 'text-cyan-400' : 'text-gray-600'}`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${cashSessionId ? 'bg-cyan-400' : 'bg-gray-600'}`} />
+          {cashSessionId ? 'Caja abierta' : 'Caja cerrada'}
+        </span>
+      )}
+    </div>
   )
 
   return (
@@ -67,7 +76,7 @@ export default function Layout() {
           </div>
           <div>
             <span className="font-display font-bold text-sm text-white block leading-none">LUKATCELL</span>
-            <TurnoBadge compact />
+            <EstadoBadge compact />
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -111,7 +120,7 @@ export default function Layout() {
           )}
         </div>
         {!collapsed && (
-          <div className="px-4 py-2 border-b border-[#30363d]"><TurnoBadge /></div>
+          <div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge /></div>
         )}
         <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
           {navItems.map(({ to, label, icon: Icon }) => (
@@ -127,7 +136,7 @@ export default function Layout() {
           {!collapsed && staff && (
             <div className="px-2 py-2 mb-1">
               <p className="text-xs font-semibold text-white truncate">{staff.nombre}</p>
-              <p className="text-[10px] text-gray-500 capitalize">{staff.rol}</p>
+              <p className="text-[10px] text-gray-500 capitalize">{staff.puesto || staff.rol}</p>
             </div>
           )}
           <button onClick={() => signOut()} title="Cerrar sesión" aria-label="Cerrar sesión"

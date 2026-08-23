@@ -40,6 +40,12 @@ function JornadaRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function OperationalRoute({ children }: { children: React.ReactNode }) {
+  const { jornadaActiva, isAdmin } = useAuth()
+  if (!isAdmin && !jornadaActiva) return <Navigate to="/jornada" replace />
+  return <>{children}</>
+}
+
 function VentaRoute() {
   const { jornadaActiva, cashSessionId } = useAuth()
   if (!jornadaActiva) return <Navigate to="/jornada" replace />
@@ -59,9 +65,9 @@ export default function App() {
                 <Route index element={<VentaRoute />} />
                 <Route path="jornada" element={<MiJornada />} />
                 <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
-                <Route path="inventario" element={<Inventario />} />
-                <Route path="ordenes" element={<OrdenesServicio />} />
-                <Route path="clientes" element={<Clientes />} />
+                <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
+                <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
+                <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
                 <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
                 <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
                 <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />

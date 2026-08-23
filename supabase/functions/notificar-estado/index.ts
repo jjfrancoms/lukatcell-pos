@@ -1,12 +1,6 @@
-// Edge Function: notificar-estado
-// Envía una notificación por WhatsApp cuando cambia el estado de una orden de servicio.
-// Sin LLM: solo plantillas de texto fijas según el estado.
-//
-// Body esperado (POST):
-// { telefono, estado, numero_orden, cliente_nombre, equipo }
-
 const WHATSAPP_TOKEN = Deno.env.get("WHATSAPP_TOKEN")!;
 const WHATSAPP_PHONE_ID = Deno.env.get("WHATSAPP_PHONE_ID")!;
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const GRAPH_API_URL = `https://graph.facebook.com/v20.0/${WHATSAPP_PHONE_ID}/messages`;
 
 interface NotificarEstadoBody {
@@ -59,9 +53,19 @@ async function enviarWhatsApp(telefono: string, texto: string): Promise<Response
   });
 }
 
+function autorizado(req: Request): boolean {
+  const auth = req.headers.get("Authorization") || "";
+  const token = auth.replace(/^Bearer\s+/i, "");
+  return !!SUPABASE_SERVICE_ROLE_KEY && token === SUPABASE_SERVICE_ROLE_KEY;
+}
+
 Deno.serve(async (req: Request) => {
-  if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
+  if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
+  if (!autorizado(req)) {
+    return new Response(JSON.stringify({ error: "No autorizado" }), {
+      status: 401,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   let body: NotificarEstadoBody;
@@ -75,29 +79,34 @@ Deno.serve(async (req: Request) => {
   }
 
   if (!body.telefono || !body.estado || body.numero_orden === undefined) {
-    return new Response(
-      JSON.stringify({ error: "Faltan campos requeridos: telefono, estado, numero_orden" }),
-      { status: 400, headers: { "content-type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: "Faltan campos requeridos: telefono, estado, numero_orden" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   const mensaje = construirMensaje(body);
   if (!mensaje) {
-    // Estado sin plantilla (ej: "recibido", "entregado") — no se notifica.
-    return new Response(JSON.stringify({ skipped: true, motivo: `sin plantilla para estado "${body.estado}"` }), {
+    return new Response(JSON.stringify({ skipped: true, motivo: `sin plantilla para estado \"${body.estado}\"` }), {
       status: 200,
       headers: { "content-type": "application/json" },
     });
   }
 
   const telefonoNormalizado = normalizarTelefono(body.telefono);
+  if (telefonoNormalizado.length < 10 || telefonoNormalizado.length > 15) {
+    return new Response(JSON.stringify({ error: "Teléfono inválido" }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }
 
   try {
     const response = await enviarWhatsApp(telefonoNormalizado, mensaje);
     if (!response.ok) {
       const errText = await response.text();
       console.error("Error enviando WhatsApp:", response.status, errText);
-      return new Response(JSON.stringify({ error: "Error al enviar WhatsApp", detalle: errText }), {
+      return new Response(JSON.stringify({ error: "Error al enviar WhatsApp" }), {
         status: 502,
         headers: { "content-type": "application/json" },
       });

@@ -26,6 +26,22 @@ input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input[type="number"] { -moz-appearance: textfield; }
 
+.input-personal {
+  width: 100%;
+  margin-top: 0.25rem;
+  border: 1px solid #30363d;
+  border-radius: 0.75rem;
+  background: #0d1117;
+  color: #fff;
+  padding: 0.625rem 1rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+.input-personal:focus {
+  border-color: #17bfe0;
+  box-shadow: 0 0 0 2px rgb(23 191 224 / 0.2);
+}
+
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 

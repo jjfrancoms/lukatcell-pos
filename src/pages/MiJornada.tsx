@@ -31,10 +31,11 @@ function estadoPersonal(p: PersonalHoy) {
 }
 
 export default function MiJornada() {
-  const { jornada, jornadaActiva, isAdmin, cashSessionId, registrarEntrada, registrarSalida, refreshJornada } = useAuth()
+  const { staff, jornada, jornadaActiva, isAdmin, cashSessionId, registrarEntrada, registrarSalida, refreshJornada } = useAuth()
   const { showToast } = useToast()
   const [procesando, setProcesando] = useState(false)
   const [personal, setPersonal] = useState<PersonalHoy[]>([])
+  const esDescanso = Boolean(staff && !isAdmin && !jornada?.turno_id && !jornada?.entrada)
 
   const cargarPersonal = async () => {
     if (!isAdmin) return
@@ -46,6 +47,7 @@ export default function MiJornada() {
   useEffect(() => { cargarPersonal() }, [isAdmin, jornada?.entrada, jornada?.salida])
 
   const entrada = async () => {
+    if (esDescanso) return showToast('Hoy es tu día de descanso', 'error')
     setProcesando(true)
     const error = await registrarEntrada()
     setProcesando(false)
@@ -79,16 +81,17 @@ export default function MiJornada() {
       <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 mb-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${jornadaActiva ? 'bg-green-500/15' : 'bg-cyan-500/15'}`}>
-              <Clock3 size={21} className={jornadaActiva ? 'text-green-400' : 'text-cyan-400'} />
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${jornadaActiva ? 'bg-green-500/15' : esDescanso ? 'bg-violet-500/15' : 'bg-cyan-500/15'}`}>
+              <Clock3 size={21} className={jornadaActiva ? 'text-green-400' : esDescanso ? 'text-violet-400' : 'text-cyan-400'} />
             </div>
             <div>
-              <p className="font-semibold text-white">{jornada?.turno_nombre || 'Sin turno asignado'}</p>
-              <p className="text-xs text-gray-500">{corta(jornada?.hora_inicio || null)} – {corta(jornada?.hora_fin || null)}</p>
+              <p className="font-semibold text-white">{esDescanso ? 'Día de descanso' : jornada?.turno_nombre || 'Sin turno asignado'}</p>
+              <p className="text-xs text-gray-500">{esDescanso ? 'No tienes jornada programada hoy' : `${corta(jornada?.hora_inicio || null)} – ${corta(jornada?.hora_fin || null)}`}</p>
             </div>
           </div>
           {jornada?.estado === 'tarde' && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-orange-500/15 border border-orange-500/30 text-orange-400">Tardanza: {jornada.minutos_tarde} min</span>}
           {jornadaActiva && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-green-500/15 border border-green-500/30 text-green-400">Trabajando ahora</span>}
+          {esDescanso && <span className="text-xs font-bold px-3 py-1.5 rounded-full bg-violet-500/15 border border-violet-500/30 text-violet-400">Descanso</span>}
         </div>
 
         <div className="grid grid-cols-2 gap-3 mt-5">
@@ -103,11 +106,12 @@ export default function MiJornada() {
         </div>
 
         <div className="mt-4">
-          {!jornada?.entrada && (
+          {!jornada?.entrada && !esDescanso && (
             <button onClick={entrada} disabled={procesando} className="inline-flex items-center gap-2 bg-gradient-to-r from-cyan-500 to-cyan-600 text-black font-bold px-5 py-3 rounded-xl disabled:opacity-50">
               <LogIn size={17} /> {procesando ? 'Registrando...' : 'Registrar entrada'}
             </button>
           )}
+          {esDescanso && <p className="text-sm text-violet-300">Hoy no necesitas registrar entrada ni salida.</p>}
           {jornadaActiva && (
             <button onClick={salida} disabled={procesando || Boolean(cashSessionId)} className="inline-flex items-center gap-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold px-5 py-3 rounded-xl disabled:opacity-40">
               <LogOut size={17} /> {cashSessionId ? 'Cierra caja para salir' : procesando ? 'Registrando...' : 'Registrar salida'}

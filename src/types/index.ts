@@ -112,6 +112,20 @@ export interface Asistencia {
   updated_at: string
 }
 
+export interface JornadaActual {
+  asistencia_id: string | null
+  fecha: string | null
+  entrada: string | null
+  salida: string | null
+  estado: EstadoAsistencia | null
+  minutos_tarde: number
+  turno_id: string | null
+  turno_nombre: string | null
+  hora_inicio: string | null
+  hora_fin: string | null
+  tolerancia_minutos: number | null
+}
+
 export type MetodoPago = 'efectivo' | 'tarjeta' | 'yape' | 'plin'
 
 export interface PagoDetalle {

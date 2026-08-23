@@ -69,8 +69,10 @@ export default function Layout() {
     </div>
   )
 
+  const roleClass = isAdmin ? 'role-administrador' : `role-${staff?.puesto || 'sin-puesto'}`
+
   return (
-    <div className="flex h-screen bg-[#0d1117]">
+    <div className={`flex h-screen bg-[#0d1117] ${roleClass}`}>
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 pb-3"
         style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2">

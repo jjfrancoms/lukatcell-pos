@@ -11,7 +11,6 @@ const baseNavItems = [
   { to: '/inventario', label: 'Inventario', icon: Package },
   { to: '/ordenes', label: 'Órdenes', icon: Wrench },
   { to: '/clientes', label: 'Clientes', icon: Users },
-  { to: '/reportes', label: 'Reportes', icon: BarChart3 },
 ]
 
 export default function Layout() {
@@ -29,7 +28,12 @@ export default function Layout() {
   const [reintentandoManual, setReintentandoManual] = useState(false)
 
   const navItems = isAdmin
-    ? [...baseNavItems, { to: '/personal', label: 'Personal', icon: UserCog }, { to: '/configuracion', label: 'Configuración', icon: Settings }]
+    ? [
+        ...baseNavItems,
+        { to: '/reportes', label: 'Reportes', icon: BarChart3 },
+        { to: '/personal', label: 'Personal', icon: UserCog },
+        { to: '/configuracion', label: 'Configuración', icon: Settings },
+      ]
     : baseNavItems
 
   useEffect(() => { localStorage.setItem('lukatcell_sidebar_collapsed', collapsed ? '1' : '0') }, [collapsed])
@@ -67,7 +71,6 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-[#0d1117]">
-      {/* Mobile header */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 pb-3"
         style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <div className="flex items-center gap-2">
@@ -86,7 +89,7 @@ export default function Layout() {
           </button>
         </div>
       </div>
-      {/* Mobile menu overlay */}
+
       {menuOpen && (
         <div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={() => setMenuOpen(false)}>
           <nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto overflow-x-hidden"
@@ -106,7 +109,7 @@ export default function Layout() {
           </nav>
         </div>
       )}
-      {/* Desktop sidebar */}
+
       <aside className={`hidden md:flex flex-col shrink-0 border-r border-[#30363d] bg-[#010409] transition-all duration-200 ${collapsed ? 'w-16' : 'w-52'}`}>
         <div className={`flex items-center gap-2 py-4 border-b border-[#30363d] ${collapsed ? 'justify-center px-2' : 'px-4'}`}>
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-500/20">
@@ -150,6 +153,7 @@ export default function Layout() {
           </button>
         </div>
       </aside>
+
       <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">
         {!online && (
           <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">

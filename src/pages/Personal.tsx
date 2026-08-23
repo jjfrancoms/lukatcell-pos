@@ -188,13 +188,12 @@ function ModalPersonal({ staff, turnos, asignaciones = [], onClose, onSaved }: {
         const { error: updateError } = await supabase.from('staff').update({ nombre: nombre.trim(), username: username.trim(), rol, puesto }).eq('id', staff.id)
         if (updateError) throw updateError
       } else {
-        const { data, error: createError } = await supabase.functions.invoke('crear-personal', { body: { nombre: nombre.trim(), username: username.trim(), correo: correo.trim(), password, rol } })
+        const { data, error: createError } = await supabase.functions.invoke('crear-personal', {
+          body: { nombre: nombre.trim(), username: username.trim(), correo: correo.trim(), password, rol, puesto },
+        })
         if (createError || data?.error) throw new Error(data?.error || createError?.message || 'No se pudo crear el personal')
-        const { data: creado, error: findError } = await supabase.from('staff').select('id').eq('username', username.trim()).maybeSingle()
-        if (findError || !creado) throw new Error('El usuario se creó, pero no se pudo completar su configuración')
-        staffId = creado.id
-        const { error: puestoError } = await supabase.from('staff').update({ puesto }).eq('id', staffId)
-        if (puestoError) throw puestoError
+        staffId = data?.staff?.id
+        if (!staffId) throw new Error('El usuario se creó, pero no se pudo obtener su perfil de personal')
       }
 
       if (!staffId) throw new Error('No se encontró el personal')

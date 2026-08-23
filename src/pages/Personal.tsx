@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Clock3, Pencil, Plus, ShieldCheck, User as UserIcon, Users, Wrench, X } from 'lucide-react'
+import { AlertTriangle, CalendarDays, Clock3, Pencil, Plus, ShieldCheck, User as UserIcon, Users, Wrench, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
@@ -22,6 +22,17 @@ const PUESTOS: Array<{ value: StaffPuesto; label: string }> = [
   { value: 'jefa', label: 'Jefa' },
 ]
 
+interface ConfigPendiente {
+  staff_id: string
+  nombre: string
+  username: string
+  puesto: string | null
+  dias_programados: number
+  falta_login: boolean
+  falta_puesto: boolean
+  falta_horario: boolean
+}
+
 function horaCorta(hora: string) {
   return hora?.slice(0, 5) || '--:--'
 }
@@ -36,24 +47,32 @@ export default function Personal() {
   const [lista, setLista] = useState<Staff[]>([])
   const [turnos, setTurnos] = useState<Turno[]>([])
   const [asignaciones, setAsignaciones] = useState<StaffTurno[]>([])
+  const [pendientes, setPendientes] = useState<ConfigPendiente[]>([])
   const [loading, setLoading] = useState(true)
   const [nuevoOpen, setNuevoOpen] = useState(false)
   const [editando, setEditando] = useState<Staff | null>(null)
 
   const cargar = async () => {
     setLoading(true)
-    const [{ data: staffData, error: staffError }, { data: turnosData, error: turnosError }, { data: asignacionesData, error: asignacionesError }] = await Promise.all([
+    const [
+      { data: staffData, error: staffError },
+      { data: turnosData, error: turnosError },
+      { data: asignacionesData, error: asignacionesError },
+      { data: pendientesData, error: pendientesError },
+    ] = await Promise.all([
       supabase.from('staff').select('*').order('created_at'),
       supabase.from('turnos').select('*').eq('activo', true).order('hora_inicio'),
       supabase.from('staff_turnos').select('*').eq('activo', true),
+      supabase.rpc('personal_configuracion_pendiente'),
     ])
 
-    if (staffError || turnosError || asignacionesError) {
+    if (staffError || turnosError || asignacionesError || pendientesError) {
       showToast('No se pudo cargar la configuración del personal', 'error')
     }
     setLista(staffData || [])
     setTurnos(turnosData || [])
     setAsignaciones(asignacionesData || [])
+    setPendientes((pendientesData as ConfigPendiente[] | null) || [])
     setLoading(false)
   }
 
@@ -65,6 +84,7 @@ export default function Personal() {
     if (error) { showToast('No se pudo actualizar', 'error'); return }
     setLista((l) => l.map((x) => x.id === s.id ? { ...x, activo: !x.activo } : x))
     showToast(s.activo ? `${s.nombre} desactivado` : `${s.nombre} activado`, 'success')
+    await cargar()
   }
 
   const turnosPorStaff = useMemo(() => {
@@ -85,6 +105,38 @@ export default function Personal() {
           <Plus size={16} /> Nuevo personal
         </button>
       </div>
+
+      {!loading && pendientes.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-orange-500/30 bg-orange-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={18} className="text-orange-400 mt-0.5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-orange-300">Configuración pendiente</p>
+              <p className="text-xs text-orange-200/70 mt-1">Completa estos perfiles antes de usarlos para iniciar sesión o registrar jornadas.</p>
+              <div className="mt-3 grid gap-2">
+                {pendientes.map((p) => (
+                  <div key={p.staff_id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border border-orange-500/20 bg-[#0d1117]/70 px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{p.nombre} <span className="font-normal text-gray-500">@{p.username}</span></p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {p.falta_login && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/20">Sin login</span>}
+                        {p.falta_puesto && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/20">Sin puesto</span>}
+                        {p.falta_horario && <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-300 border border-yellow-500/20">Sin horario</span>}
+                      </div>
+                    </div>
+                    <button onClick={() => {
+                      const encontrado = lista.find((s) => s.id === p.staff_id)
+                      if (encontrado) setEditando(encontrado)
+                    }} className="self-start sm:self-auto px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#21262d] text-gray-300 border border-[#30363d] hover:text-white">
+                      Revisar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-3">
         {loading && <div className="bg-[#161b22] rounded-2xl border border-[#30363d] p-8 text-center text-gray-500 text-sm">Cargando...</div>}

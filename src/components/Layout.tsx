@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
@@ -15,6 +15,7 @@ const baseNavItems = [
   { to: '/ordenes', label: 'Órdenes', icon: Wrench },
   { to: '/clientes', label: 'Clientes', icon: Users },
   { to: '/autorizaciones', label: 'Autorizaciones', icon: KeyRound },
+  { to: '/notificaciones', label: 'Notificaciones', icon: Bell },
   { to: '/seguridad', label: 'Seguridad', icon: ShieldCheck },
 ]
 
@@ -29,6 +30,7 @@ export default function Layout() {
   const operacional=[...baseNavItems,...(puedeInventarioAvanzado?[{to:'/taller',label:'Taller',icon:Wrench},{to:'/compras',label:'Compras',icon:ShoppingBasket},{to:'/transferencias',label:'Transferencias',icon:ArrowRightLeft},{to:'/conteo-inventario',label:'Conteo físico',icon:ClipboardCheck}]:[])]
   const navItems=isAdmin?[
     {to:'/dashboard',label:'Dashboard',icon:LayoutDashboard},...operacional,
+    {to:'/crm',label:'CRM',icon:Users},
     {to:'/reportes',label:'Reportes',icon:BarChart3},{to:'/reportes-avanzados',label:'Reportes avanzados',icon:BarChart3},
     {to:'/promociones',label:'Promociones',icon:BadgePercent},{to:'/sucursales',label:'Sucursales',icon:Building2},
     {to:'/valorizacion-inventario',label:'Valorización',icon:Package},

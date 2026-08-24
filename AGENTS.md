@@ -1,12 +1,18 @@
-# LukatCell POS — Multi-Agent Operating Model
+# LukatCell POS — Equipo Elite
 
 Este archivo es la fuente de instrucciones para cualquier agente que trabaje en este repositorio.
+
+## Identidad del equipo
+
+El sistema multiagente del proyecto se llama **Equipo Elite**.
+
+Cuando el usuario diga **Equipo Elite**, se refiere a este grupo completo de agentes coordinados y a su flujo de trabajo persistente.
 
 ## Objetivo
 
 Reducir el tiempo de desarrollo evitando análisis repetidos, cambios incompatibles y pruebas tardías. El trabajo se divide en agentes con responsabilidades claras, carriles paralelos y una memoria compartida versionada en Git.
 
-## Equipo multiagente
+## Equipo Elite
 
 ### ORCHESTRATOR-1 — Coordinación principal
 - Lee `STATE.md`, `BACKLOG.md`, `DECISIONS.md` y `TEST_PROTOCOL.md`.
@@ -79,7 +85,7 @@ No se permite:
 
 ## Flujo rápido
 
-`REQUEST -> ORCHESTRATOR -> CREATOR-1 + CREATOR-2 -> DEV-1 + DEV-2 + DEV-3 || TESTER-1 + TESTER-2 + TESTER-3 -> FIX -> RETEST -> DEPLOY -> MEMORY UPDATE`
+`REQUEST -> EQUIPO ELITE -> ORCHESTRATOR -> CREATOR-1 + CREATOR-2 -> DEV-1 + DEV-2 + DEV-3 || TESTER-1 + TESTER-2 + TESTER-3 -> FIX -> RETEST -> DEPLOY -> MEMORY UPDATE`
 
 Los seis agentes de DEV/TEST pueden trabajar en paralelo si sus escrituras no colisionan.
 
@@ -107,7 +113,7 @@ NEXT: <acción exacta siguiente>
 - `docs/agents/TEST_PROTOCOL.md`: protocolo de pruebas.
 - `docs/agents/TEAM_MATRIX.md`: asignación de agentes/carriles y reglas de concurrencia.
 
-Todos los agentes deben leer la memoria relevante antes de trabajar. ORCHESTRATOR actualiza STATE/BACKLOG al cerrar cada bloque; DECISIONS cuando exista una decisión arquitectónica nueva.
+Todos los agentes de **Equipo Elite** deben leer la memoria relevante antes de trabajar. ORCHESTRATOR actualiza STATE/BACKLOG al cerrar cada bloque; DECISIONS cuando exista una decisión arquitectónica nueva.
 
 ## Definition of Done
 

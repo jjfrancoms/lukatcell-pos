@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2 } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
@@ -20,8 +20,8 @@ export default function Layout() {
   const { staff, isAdmin, cashSessionId, jornadaActiva, signOut } = useAuth()
   const { online } = useOnlineStatus()
   const [pendientes,setPendientes]=useState(0), [fallidas,setFallidas]=useState(0), [agotadas,setAgotadas]=useState(0), [reintentandoManual,setReintentandoManual]=useState(false)
-  const puedeCompras=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||'')
-  const operacional=[...baseNavItems,...(puedeCompras?[{to:'/compras',label:'Compras',icon:ShoppingBasket}]:[])]
+  const puedeInventarioAvanzado=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||'')
+  const operacional=[...baseNavItems,...(puedeInventarioAvanzado?[{to:'/compras',label:'Compras',icon:ShoppingBasket},{to:'/transferencias',label:'Transferencias',icon:ArrowRightLeft},{to:'/conteo-inventario',label:'Conteo físico',icon:ClipboardCheck}]:[])]
   const navItems=isAdmin?[
     {to:'/dashboard',label:'Dashboard',icon:LayoutDashboard},...operacional,
     {to:'/reportes',label:'Reportes',icon:BarChart3},{to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}

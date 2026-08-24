@@ -4,124 +4,90 @@ Estados: `READY`, `IN_PROGRESS`, `BLOCKED`, `DONE`.
 
 ## Equipos activos
 
-Por decisión operativa trabajan solo 4 Equipo Elite simultáneamente:
-- ELITE-01 — Cierre técnico P2
-- ELITE-02 — Servicio técnico avanzado
-- ELITE-15 — Seguridad
-- ELITE-16 — Testing
+Solo 4 Equipo Elite simultáneos:
+- ELITE-04 — Cierre gerencial avanzado
+- ELITE-06 — Pagos
+- ELITE-08 — Inventario avanzado
+- ELITE-09 — Compras avanzadas
 
-Los demás squads quedan en espera hasta liberar un cupo.
+## Bloques cerrados
 
-## P0 — coherencia de personal/turnos
+P0 personal/turnos: DONE.
+P1 POS crítico: DONE.
+P2 abastecimiento/inventario base: DONE.
+P3 Taller técnico avanzado base: DONE.
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P0-01 | Migración mensual respeta excepciones | DONE |
-| P0-02 | Regresiones Cambios de turno | DONE |
-| P0-03 | Dashboard permisos/vacaciones/licencias | DONE |
-| P0-04 | Vercel + Security Advisor | DONE |
-| P0-FIX-01 | Permiso EXECUTE resolver_turno_fecha | DONE |
+## ELITE-04 — Cierre gerencial
 
-## P1 — funciones críticas para POS real
+| Tarea | Estado |
+|---|---|
+| Firma/aprobación de cierre | DONE |
+| Bloqueo financiero posterior del día | DONE |
+| Diferencia crítica con autorización | DONE |
+| Conciliaciones pendientes en cierre | DONE |
+| Reporte final imprimible | DONE |
+| Build/deploy final de la ola | BLOCKED: Vercel build-rate-limit |
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P1-01 | Anulación de venta con autorización, motivo y auditoría | DONE |
-| P1-02 | Devolución total/parcial con reversión de stock y reembolso | DONE |
-| P1-03 | Nota de crédito vinculada a venta/comprobante | DONE |
-| P1-04 | Motor de autorizaciones | DONE |
-| P1-05 | Cierre diario general de tienda | DONE |
+## ELITE-06 — Pagos
 
-## P2 — abastecimiento e inventario avanzado
+| Tarea | Estado |
+|---|---|
+| Pago mixto base | DONE (preexistente) |
+| Conciliación de pagos no efectivos | DONE |
+| Diferencia/rechazo/confirmación | DONE |
+| Resumen por fecha real de venta | DONE |
+| UI Conciliación | DONE |
+| Auto-conciliación Culqi/pagos digitales | IN_PROGRESS |
+| Reembolso automático con proveedor | READY |
+| Integración POS externo tarjeta | READY |
+| Digital verificado dentro de pago mixto | READY |
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P2-01 | Proveedores | DONE |
-| P2-02 | Órdenes de compra | DONE |
-| P2-03 | Recepción parcial/completa con ingreso automático de stock | DONE |
-| P2-04 | Transferencias entre sucursales | DONE |
-| P2-05 | IMEI / número de serie por unidad | DONE |
-| P2-06 | Conteo físico / ajuste por inventario | DONE |
-| P2-SEC-01 | Revocar `anon` de RPC privilegiadas de P2 | DONE |
-| P2-TEST-01 | Regresiones estáticas de Proveedores/Compras/Transferencias/Conteo/Seriales | DONE |
-| P2-DEPLOY-01 | Build Vercel después del bloque | DONE |
-| P2-DOC-01 | Alinear migraciones GitHub con versiones de producción | DONE |
+## ELITE-08 — Inventario avanzado
 
-## P3 — servicio técnico avanzado
+| Tarea | Estado |
+|---|---|
+| Historial de costos | DONE |
+| Valorización de inventario | DONE |
+| UI Valorización | DONE |
+| Privacidad real de costo para no-admin | IN_PROGRESS |
+| Reconciliación stock ↔ IMEI/serial | READY |
+| Reservas avanzadas de stock | READY |
+| Tránsito avanzado | READY |
+| Alertas automáticas | READY |
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P3-01 | Técnico asignado a orden | DONE |
-| P3-02 | Repuestos utilizados y descuento/reposición de inventario | DONE |
-| P3-03 | Mano de obra y total recalculado | DONE |
-| P3-04 | Fotos antes/después/diagnóstico | DONE |
-| P3-05 | Garantía de reparación | DONE |
-| P3-06 | Ticket/recepción imprimible desde Taller | DONE |
-| P3-07 | IMEI/serie del equipo | DONE |
-| P3-08 | Fecha prometida/SLA | DONE |
-| P3-09 | Historial estructurado de diagnóstico/estados/repuestos | DONE |
-| P3-TEST-01 | Tests SQL admin/repuestos + vendedor bloqueado | DONE |
-| P3-UI-01 | Vista `/taller` con protección por rol/jornada | DONE |
-| P3-BUILD-01 | Corregir tipado de Taller y lograr Vercel SUCCESS | DONE |
-| P3-POLISH-01 | Mejorar UX de selección de repuestos/fotos e indicadores SLA | READY |
+## ELITE-09 — Compras avanzadas
 
-## P4 — reportes/gerencia
+| Tarea | Estado |
+|---|---|
+| Facturas proveedor | DONE |
+| Cuentas por pagar | DONE |
+| Pagos proveedor | DONE |
+| Histórico costos de compra | DONE |
+| UI Cuentas por pagar | DONE |
+| Adjuntar documento de factura/recepción | READY |
+| Vincular factura a orden desde UI | READY |
+| Comparar proveedores/precios | READY |
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P4-01 | Ventas por vendedor | READY |
-| P4-02 | Ventas por sucursal | READY |
-| P4-03 | Ticket promedio y comparación de periodos | READY |
-| P4-04 | Margen y rentabilidad por producto/categoría | READY |
-| P4-05 | Inventario valorizado | READY |
-| P4-06 | Rentabilidad de servicio técnico | READY |
-| P4-07 | Cajas por empleado | READY |
-| P4-08 | Exportación Excel/PDF | READY |
+## Quality gates de esta ola
 
-## P5 — hardware y operación
+| Gate | Estado |
+|---|---|
+| Pruebas SQL admin positivas | DONE |
+| Pruebas vendedor bloqueado | DONE |
+| Tablas públicas sin RLS | DONE = 0 |
+| SECDEF ejecutable por anon | DONE = 0 |
+| Regresión estática nueva | DONE / versionada |
+| Vercel | BLOCKED por build-rate-limit |
+| Build local alternativo | BLOCKED por DNS del entorno |
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P5-01 | Impresión térmica ESC/POS | READY |
-| P5-02 | Reimpresión de ticket/comprobante | READY |
-| P5-03 | Cajón monedero | READY |
-| P5-04 | Impresión de etiquetas | READY |
-| P5-05 | Backup local de tickets | READY |
+## Pendientes externos generales
 
-## P6 — calidad/plataforma
+| Tarea | Estado |
+|---|---|
+| Leaked Password Protection | BLOCKED: Supabase Dashboard |
+| `WHATSAPP_APP_SECRET` | BLOCKED: secret externo |
+| Validar firma Meta `X-Hub-Signature-256` | BLOCKED hasta secret |
 
-| ID | Tarea | Estado |
-|---|---|---|
-| P6-01 | Vitest + React Testing Library | IN_PROGRESS |
-| P6-02 | Playwright E2E | READY |
-| P6-03 | E2E Login → Entrada → Caja → Venta → Cierre → Salida | READY |
-| P6-04 | Pruebas offline automatizadas | READY |
-| P6-05 | Pruebas pagos | READY |
-| P6-06 | Pruebas multi-sucursal | READY |
-| P6-07 | Staging Supabase separado | READY |
-| P6-08 | Error tracking/monitoring | READY |
-| P6-09 | Backups y recuperación documentada | READY |
+## Siguiente ola cuando se liberen estos 4
 
-## Seguridad activa — ELITE-15
-
-| ID | Tarea | Estado |
-|---|---|---|
-| SEC-01 | Mantener `SECURITY DEFINER` inaccesible a anon | DONE |
-| SEC-02 | Revisar función por función los warnings authenticated SECDEF | IN_PROGRESS |
-| SEC-03 | Proteger información de costo en inventario para no-admin | READY |
-| SEC-04 | Leaked Password Protection | BLOCKED: Supabase Dashboard |
-| SEC-05 | MFA administradores | READY |
-| SEC-06 | Rate limiting / CAPTCHA login | READY |
-| SEC-07 | Auditoría de login/sesiones | READY |
-
-## Bloqueados por configuración externa
-
-| ID | Tarea | Estado |
-|---|---|---|
-| EXT-01 | Activar Leaked Password Protection | BLOCKED: Supabase Dashboard |
-| EXT-02 | Configurar `WHATSAPP_APP_SECRET` | BLOCKED: Meta/Supabase secret |
-| EXT-03 | Validar `X-Hub-Signature-256` | BLOCKED hasta EXT-02 |
-
-## Próxima liberación de squads
-
-Cuando ELITE-01 cierre su último chequeo, su cupo pasa al siguiente bloque prioritario. Recomendación de ELITE COMMAND: activar ELITE-03 Reportes avanzados después de cerrar definitivamente ELITE-01.
+`ELITE-10 Multi-sucursal → ELITE-03 Reportes → ELITE-05 Promociones → ELITE-07 CRM`.

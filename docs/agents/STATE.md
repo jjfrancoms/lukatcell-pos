@@ -2,8 +2,6 @@
 
 Última actualización base: 2026-08-24
 
-Este archivo resume únicamente hechos operativos importantes. No debe convertirse en un changelog detallado.
-
 ## Stack
 
 - React + TypeScript + Vite
@@ -13,115 +11,93 @@ Este archivo resume únicamente hechos operativos importantes. No debe convertir
 
 ## Equipo Elite
 
-- 4 squads activos simultáneamente por decisión operativa.
-- Activos actualmente: ELITE-01 Cierre técnico P2, ELITE-02 Servicio técnico, ELITE-15 Seguridad, ELITE-16 Testing.
-- Cada squad conserva 2 ORCHESTRATOR, 2 CREATOR, 3 DEV y 3 TESTER lógicos.
-- Ownership/locks obligatorios por archivo, función SQL o migración.
-- El resto de squads permanece en espera hasta liberar capacidad.
+Máximo 4 squads activos simultáneamente.
 
-## Módulos existentes
+Activos:
+- ELITE-04 — Cierre gerencial avanzado
+- ELITE-06 — Pagos
+- ELITE-08 — Inventario avanzado
+- ELITE-09 — Compras avanzadas
 
-- Login/Auth
-- Venta POS
-- Caja
-- Inventario/Catálogo
-- Clientes
-- Órdenes de servicio
+La ola ELITE-01/02/15/16 cerró su bloque principal. Seguridad y Testing siguen siendo gates obligatorios dentro de cada squad.
+
+## Núcleo implementado
+
+- POS/Venta, Caja, Inventario, Clientes y Órdenes
+- Personal, Jornada, Turnos, Permisos y Cambios de turno
+- Dashboard, Auditoría y Reportes base
+- Comprobantes, pagos digitales base, WhatsApp base y ventas offline
+- Anulaciones, devoluciones/reembolsos, notas de crédito y autorizaciones
+- Cierre diario base
+- Proveedores, órdenes/recepciones de compra
+- Transferencias, conteo físico e IMEI/seriales
 - Taller técnico avanzado
-- Reportes base
-- Personal
-- Mi Jornada/Asistencia
-- Dashboard administrativo
-- Auditoría
-- Permisos/Vacaciones/Licencias
-- Cambios temporales de turno
-- Comprobantes electrónicos
-- Pagos digitales
-- WhatsApp/Agente base
-- Offline de ventas
-- Anulaciones
-- Devoluciones y reembolsos
-- Notas de crédito
-- Autorizaciones operativas
-- Cierre diario
-- Proveedores
-- Órdenes y recepciones de compra
-- Transferencias entre sucursales
-- Conteo físico
-- IMEI/Seriales y reservas para venta
 
-## P1 — estado
+## Ola activa — avances
 
-P1 está implementado: anulaciones, devoluciones, nota de crédito, motor de autorizaciones y cierre diario.
+### ELITE-04
+Implementado backend + UI:
+- aprobación/firma gerencial de cierre;
+- diferencia crítica con autorización operativa;
+- conteo de conciliaciones pendientes;
+- reporte final JSON + impresión;
+- bloqueo de INSERT/UPDATE/DELETE de sales/payments para un día ya aprobado.
 
-## P2 — estado
+### ELITE-06
+Pago mixto ya existía. Implementado:
+- tabla de conciliaciones de pagos no efectivos;
+- sincronización desde payments;
+- conciliado/diferencia/rechazado;
+- resumen por fecha real de venta;
+- UI `/conciliacion-pagos`.
 
-P2 está funcionalmente implementado:
-- proveedores;
-- órdenes de compra;
-- recepción parcial/completa;
-- transferencia entre sucursales;
-- IMEI/serial por unidad;
-- conteo físico.
+### ELITE-08
+Implementado:
+- historial de cambios de costo;
+- RPC administrativo de costo;
+- valorización de inventario por sucursal;
+- UI `/valorizacion-inventario`.
 
-Las regresiones estáticas cubren que las UIs sensibles usen RPC y no escriban inventario directamente. Las migraciones de P2 y el hardening de seguridad están alineadas con las versiones reales de producción.
+Pendiente crítico: el frontend de Inventario aún solicita `products.costo`; por eso el ocultamiento de costo para vendedor todavía NO está cerrado.
 
-## P3 — Taller técnico avanzado
+### ELITE-09
+Implementado:
+- facturas proveedor;
+- pagos proveedor;
+- cuentas por pagar y vencimientos;
+- histórico de costo real de recepción;
+- UI `/cuentas-por-pagar`.
 
-Backend y UI base implementados:
-- técnico asignado;
-- IMEI/serie del equipo;
-- diagnóstico y estado técnico;
-- mano de obra;
-- repuestos con descuento/reposición transaccional de stock;
-- historial técnico automático;
-- fecha prometida/SLA;
-- garantía;
-- fotos antes/después/diagnóstico en bucket privado;
-- ticket de recepción existente accesible desde Taller.
+## Verificaciones
 
-Pruebas SQL transaccionales confirmaron flujo administrativo y repuestos; vendedor bloqueado por RPC y UPDATE directo. La vista `/taller` está protegida por `InventoryOpsRoute`.
+Pruebas SQL con `BEGIN/ROLLBACK`:
+- historial de costo + valorización: PASS;
+- factura 100 + pago parcial 40 = saldo 60: PASS;
+- conciliación de pago: PASS;
+- aprobación normal de cierre: PASS;
+- diferencia crítica sin autorización: bloqueada correctamente;
+- vendedor bloqueado en los cuatro módulos administrativos: PASS.
 
-## Seguridad estructural
+Seguridad actual:
+- tablas públicas sin RLS = 0;
+- SECURITY DEFINER ejecutable por anon = 0.
+- Security Advisor mantiene warnings de funciones SECURITY DEFINER para authenticated, muchas intencionales y con validación interna, además de Leaked Password Protection desactivado.
 
-- RLS activo en tablas públicas.
-- Lecturas/escrituras sensibles limitadas por rol/sucursal.
-- Login por username no expone email interno al navegador.
-- `.env` no se mantiene versionado; `.env.example` es seguro.
-- Ventas validan actor, sucursal, caja, precios y totales en servidor.
-- Caja valida jornada, cajero, sucursal y una sola sesión abierta.
-- Inventario restringe ajustes según puesto/rol.
-- Auditoría registra cambios administrativos sensibles.
-- `secdef_anon = 0`: ninguna RPC `SECURITY DEFINER` pública queda ejecutable por `anon`.
-- Security Advisor mantiene avisos de RPC `SECURITY DEFINER` para authenticated que deben revisarse por intención, además de Leaked Password Protection desactivado.
+## Deploy
 
-## Testing / deploy
+La ola anterior tuvo Vercel SUCCESS.
 
-- `npm test` ejecuta regresiones estáticas de seguridad/arquitectura.
-- Regresiones incluyen P2 y Taller P3.
-- CI está configurado para test, lint y build.
-- Se han realizado pruebas SQL con rollback para permisos, RLS, turnos, caja, ventas, inventario, compras, transferencias, seriales y Taller.
-- El build de Taller falló inicialmente por tipado del formulario y fue corregido.
-- Vercel del commit de corrección de Taller `636ecde6d55e99393a9dde1485223c4a48c42558` terminó en SUCCESS.
+El último intento de esta ola fue rechazado por **Vercel build-rate-limit** (`upgradeToPro=build-rate-limit`). No existe todavía evidencia de build verde para las UIs nuevas. Un intento local alternativo tampoco pudo ejecutarse por DNS del entorno, así que no debe marcarse esta ola como desplegada hasta obtener un nuevo Vercel SUCCESS.
 
-## Pendientes externos conocidos
+## Bloqueos externos
 
-- Activar Leaked Password Protection en Supabase Auth.
-- Configurar `WHATSAPP_APP_SECRET` y validar firma `X-Hub-Signature-256` en POST de Meta.
+- Vercel build-rate-limit temporal/del plan para la ola actual.
+- Leaked Password Protection requiere Supabase Dashboard.
+- `WHATSAPP_APP_SECRET` requiere secret externo para firma Meta.
 
-## Siguiente prioridad de los 4 squads activos
+## Próximo trabajo dentro de los 4 squads activos
 
-- ELITE-01: cierre documental/final de P2.
-- ELITE-02: pulido funcional de Taller y transición a reportes de servicio.
-- ELITE-15: revisar warnings authenticated SECDEF y hardening adicional sin romper RPC transaccionales.
-- ELITE-16: ampliar testing automatizado (Vitest/RTL/Playwright) empezando por flujos críticos.
-
-## Regla de actualización
-
-Después de terminar una función, actualizar solo:
-- estado del módulo;
-- riesgo nuevo;
-- bloqueo nuevo;
-- siguiente prioridad.
-
-No copiar conversaciones completas aquí.
+- ELITE-04: cerrar build + detalles gerenciales finales.
+- ELITE-06: auto-conciliación con pagos digitales/Culqi y reembolso proveedor.
+- ELITE-08: privacidad real de costo + reconciliación serial/stock + alertas.
+- ELITE-09: documentos de factura/recepción + comparación de proveedores/precios.

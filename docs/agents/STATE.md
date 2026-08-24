@@ -11,15 +11,13 @@ Este archivo resume únicamente hechos operativos importantes. No debe convertir
 - Vercel
 - GitHub Actions/CI
 
-## Equipo multiagente
+## Equipo Elite
 
-- 2 ORCHESTRATOR
-- 2 CREATOR
-- 3 DEV
-- 3 TESTER
-- Carriles paralelos A Backend, B Frontend, C Integraciones/Plataforma.
+- 4 squads activos simultáneamente por decisión operativa.
+- Activos actualmente: ELITE-01 Cierre técnico P2, ELITE-02 Servicio técnico, ELITE-15 Seguridad, ELITE-16 Testing.
+- Cada squad conserva 2 ORCHESTRATOR, 2 CREATOR, 3 DEV y 3 TESTER lógicos.
 - Ownership/locks obligatorios por archivo, función SQL o migración.
-- Máximo 3 tareas de implementación simultáneas.
+- El resto de squads permanece en espera hasta liberar capacidad.
 
 ## Módulos existentes
 
@@ -29,7 +27,8 @@ Este archivo resume únicamente hechos operativos importantes. No debe convertir
 - Inventario/Catálogo
 - Clientes
 - Órdenes de servicio
-- Reportes
+- Taller técnico avanzado
+- Reportes base
 - Personal
 - Mi Jornada/Asistencia
 - Dashboard administrativo
@@ -40,18 +39,48 @@ Este archivo resume únicamente hechos operativos importantes. No debe convertir
 - Pagos digitales
 - WhatsApp/Agente base
 - Offline de ventas
+- Anulaciones
+- Devoluciones y reembolsos
+- Notas de crédito
+- Autorizaciones operativas
+- Cierre diario
+- Proveedores
+- Órdenes y recepciones de compra
+- Transferencias entre sucursales
+- Conteo físico
+- IMEI/Seriales y reservas para venta
 
-## Estado personal/turnos
+## P1 — estado
 
-- 5 perfiles activos.
-- Puestos usados: jefa, vendedor, técnico.
-- Tres perfiles operativos todavía pueden existir sin login Auth hasta que administración use `Crear acceso`.
-- Cada perfil tiene patrón semanal de 6 días + 1 descanso diferenciado.
-- Máximo un turno activo por persona/día.
-- Historial de turnos preservado.
-- Cambios diarios/excepciones soportados.
-- Turnos cruzando medianoche soportados.
-- El resumen mensual respeta excepciones diarias.
+P1 está implementado: anulaciones, devoluciones, nota de crédito, motor de autorizaciones y cierre diario.
+
+## P2 — estado
+
+P2 está funcionalmente implementado:
+- proveedores;
+- órdenes de compra;
+- recepción parcial/completa;
+- transferencia entre sucursales;
+- IMEI/serial por unidad;
+- conteo físico.
+
+Las regresiones estáticas cubren que las UIs sensibles usen RPC y no escriban inventario directamente. Las migraciones de P2 y el hardening de seguridad están alineadas con las versiones reales de producción.
+
+## P3 — Taller técnico avanzado
+
+Backend y UI base implementados:
+- técnico asignado;
+- IMEI/serie del equipo;
+- diagnóstico y estado técnico;
+- mano de obra;
+- repuestos con descuento/reposición transaccional de stock;
+- historial técnico automático;
+- fecha prometida/SLA;
+- garantía;
+- fotos antes/después/diagnóstico en bucket privado;
+- ticket de recepción existente accesible desde Taller.
+
+Pruebas SQL transaccionales confirmaron flujo administrativo y repuestos; vendedor bloqueado por RPC y UPDATE directo. La vista `/taller` está protegida por `InventoryOpsRoute`.
 
 ## Seguridad estructural
 
@@ -63,39 +92,29 @@ Este archivo resume únicamente hechos operativos importantes. No debe convertir
 - Caja valida jornada, cajero, sucursal y una sola sesión abierta.
 - Inventario restringe ajustes según puesto/rol.
 - Auditoría registra cambios administrativos sensibles.
-- Security Advisor conserva únicamente 5 RPC SECURITY DEFINER intencionales para authenticated + Leaked Password Protection pendiente.
+- `secdef_anon = 0`: ninguna RPC `SECURITY DEFINER` pública queda ejecutable por `anon`.
+- Security Advisor mantiene avisos de RPC `SECURITY DEFINER` para authenticated que deben revisarse por intención, además de Leaked Password Protection desactivado.
 
-## Dashboard/Asistencia
-
-- Dashboard admin con ventas, cajas, personal, órdenes, stock crítico y configuración pendiente.
-- Permiso, vacaciones y licencia son estados visuales propios.
-- Resumen mensual de asistencia.
-- Tardanzas reales.
-- Horas programadas y registradas.
-- Jornadas sin salida.
-- Justificaciones.
-- Permisos/vacaciones/licencias.
-- Cambios temporales de turno afectan programación del día y resumen mensual.
-
-## Testing
+## Testing / deploy
 
 - `npm test` ejecuta regresiones estáticas de seguridad/arquitectura.
-- Regresiones incluyen Cambios de turno y estados de permisos del Dashboard.
-- CI ejecuta test, lint y build.
-- Se han realizado pruebas SQL transaccionales con rollback para permisos, RLS, turnos, caja, ventas e inventario.
-- TESTER detectó y DEV corrigió permiso faltante de `private.resolver_turno_fecha`; resumen mensual volvió a pasar como authenticated admin.
-- Vercel del cambio de Dashboard P0 terminó en success.
+- Regresiones incluyen P2 y Taller P3.
+- CI está configurado para test, lint y build.
+- Se han realizado pruebas SQL con rollback para permisos, RLS, turnos, caja, ventas, inventario, compras, transferencias, seriales y Taller.
+- El build de Taller falló inicialmente por tipado del formulario y fue corregido.
+- Vercel del commit de corrección de Taller `636ecde6d55e99393a9dde1485223c4a48c42558` terminó en SUCCESS.
 
 ## Pendientes externos conocidos
 
 - Activar Leaked Password Protection en Supabase Auth.
 - Configurar `WHATSAPP_APP_SECRET` y validar firma `X-Hub-Signature-256` en POST de Meta.
 
-## Siguiente prioridad
+## Siguiente prioridad de los 4 squads activos
 
-P0 cerrado.
-
-Siguiente tarea: `P1-01` Anulación de venta con autorización, motivo, integridad de stock/pagos/comprobante y auditoría.
+- ELITE-01: cierre documental/final de P2.
+- ELITE-02: pulido funcional de Taller y transición a reportes de servicio.
+- ELITE-15: revisar warnings authenticated SECDEF y hardening adicional sin romper RPC transaccionales.
+- ELITE-16: ampliar testing automatizado (Vitest/RTL/Playwright) empezando por flujos críticos.
 
 ## Regla de actualización
 

@@ -15,6 +15,7 @@ const baseNavItems = [
   { to: '/ordenes', label: 'Órdenes', icon: Wrench },
   { to: '/clientes', label: 'Clientes', icon: Users },
   { to: '/autorizaciones', label: 'Autorizaciones', icon: KeyRound },
+  { to: '/seguridad', label: 'Seguridad', icon: ShieldCheck },
 ]
 
 export default function Layout() {

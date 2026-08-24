@@ -14,6 +14,8 @@ import ReportesAvanzados from './pages/ReportesAvanzados'
 import OrdenesServicio from './pages/OrdenesServicio'
 import Taller from './pages/Taller'
 import Clientes from './pages/Clientes'
+import CRM from './pages/CRM'
+import Notificaciones from './pages/Notificaciones'
 import Personal from './pages/Personal'
 import PermisosPersonal from './pages/PermisosPersonal'
 import CambiosTurno from './pages/CambiosTurno'
@@ -58,6 +60,7 @@ export default function App() {
       <Route index element={<VentaRoute />} />
       <Route path="jornada" element={<MiJornada />} />
       <Route path="seguridad" element={<SeguridadMFA />} />
+      <Route path="notificaciones" element={<Notificaciones />} />
       <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
       <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
@@ -69,6 +72,7 @@ export default function App() {
       <Route path="transferencias" element={<InventoryOpsRoute><Transferencias /></InventoryOpsRoute>} />
       <Route path="conteo-inventario" element={<InventoryOpsRoute><ConteoInventario /></InventoryOpsRoute>} />
       <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
+      <Route path="crm" element={<AdminRoute><CRM /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="reportes-avanzados" element={<AdminRoute><ReportesAvanzados /></AdminRoute>} />
       <Route path="promociones" element={<AdminRoute><Promociones /></AdminRoute>} />

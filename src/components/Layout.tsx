@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
@@ -8,6 +8,7 @@ import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } 
 type SucursalAcceso={location_id:string;nombre:string;direccion:string|null;activa:boolean}
 const baseNavItems = [
   { to: '/jornada', label: 'Mi jornada', icon: Clock3 },
+  { to: '/mis-solicitudes', label: 'Mis solicitudes', icon: ClipboardList },
   { to: '/', label: 'Venta', icon: ShoppingCart },
   { to: '/caja', label: 'Caja', icon: Wallet },
   { to: '/inventario', label: 'Inventario', icon: Package },
@@ -30,13 +31,13 @@ export default function Layout() {
   const operacional=[...baseNavItems,...(puedeInventarioAvanzado?[{to:'/taller',label:'Taller',icon:Wrench},{to:'/compras',label:'Compras',icon:ShoppingBasket},{to:'/transferencias',label:'Transferencias',icon:ArrowRightLeft},{to:'/conteo-inventario',label:'Conteo físico',icon:ClipboardCheck}]:[])]
   const navItems=isAdmin?[
     {to:'/dashboard',label:'Dashboard',icon:LayoutDashboard},...operacional,
-    {to:'/crm',label:'CRM',icon:Users},
+    {to:'/crm',label:'CRM',icon:Users},{to:'/whatsapp',label:'WhatsApp',icon:MessageCircle},
     {to:'/reportes',label:'Reportes',icon:BarChart3},{to:'/reportes-avanzados',label:'Reportes avanzados',icon:BarChart3},
     {to:'/promociones',label:'Promociones',icon:BadgePercent},{to:'/sucursales',label:'Sucursales',icon:Building2},
     {to:'/valorizacion-inventario',label:'Valorización',icon:Package},
     {to:'/conciliacion-pagos',label:'Conciliación',icon:Wallet},
     {to:'/cuentas-por-pagar',label:'Cuentas por pagar',icon:ShoppingBasket},
-    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
+    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/solicitudes-personal',label:'Solicitudes de personal',icon:ClipboardList},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
   ]:operacional
   useEffect(()=>{localStorage.setItem('lukatcell_sidebar_collapsed',collapsed?'1':'0')},[collapsed])
   useEffect(()=>{supabase.rpc('mis_sucursales').then(({data})=>setSucursales((data as SucursalAcceso[])||[]))},[staff?.id])

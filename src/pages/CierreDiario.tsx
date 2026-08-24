@@ -1,86 +1,29 @@
-import { useEffect, useState } from 'react'
-import { CalendarCheck2, RefreshCw } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { CalendarCheck2, RefreshCw, ShieldCheck, Printer, AlertTriangle } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
 
-interface Preview {
-  fecha: string
-  total_ventas: number
-  cantidad_ventas: number
-  efectivo: number
-  digital: number
-  otros_pagos: number
-  total_reembolsos: number
-  cajas_abiertas: number
-  cajas_cerradas: number
-  diferencia_cajas: number
-  ordenes_abiertas: number
-  stock_critico: number
-}
-interface Cierre {
-  id: string
-  fecha: string
-  total_ventas: number
-  cantidad_ventas: number
-  efectivo: number
-  digital: number
-  otros_pagos: number
-  total_reembolsos: number
-  diferencia_cajas: number
-  cajas_cerradas: number
-  ordenes_abiertas: number
-  stock_critico: number
-  observacion: string | null
-  closed_at: string
-  cerrador: { nombre: string } | null
-}
+interface Preview {fecha:string;total_ventas:number;cantidad_ventas:number;efectivo:number;digital:number;otros_pagos:number;total_reembolsos:number;cajas_abiertas:number;cajas_cerradas:number;diferencia_cajas:number;ordenes_abiertas:number;stock_critico:number}
+interface Cierre {id:string;fecha:string;total_ventas:number;cantidad_ventas:number;efectivo:number;digital:number;otros_pagos:number;total_reembolsos:number;diferencia_cajas:number;cajas_cerradas:number;ordenes_abiertas:number;stock_critico:number;observacion:string|null;closed_at:string;estado_aprobacion:'pendiente'|'aprobado';aprobado_at:string|null;firma_responsable:string|null;observacion_aprobacion:string|null;diferencia_critica:boolean;conciliaciones_pendientes:number;reporte_final:Record<string,unknown>;cerrador:{nombre:string}|null;aprobador:{nombre:string}|null}
 const soles=(v:number)=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(Number(v||0))
 
 export default function CierreDiario(){
-  const {showToast}=useToast()
-  const hoy=new Date().toISOString().slice(0,10)
-  const [fecha,setFecha]=useState(hoy)
-  const [preview,setPreview]=useState<Preview|null>(null)
-  const [cierres,setCierres]=useState<Cierre[]>([])
-  const [observacion,setObservacion]=useState('')
-  const [loading,setLoading]=useState(true)
-  const [cerrando,setCerrando]=useState(false)
-
-  const cargar=async()=>{
-    setLoading(true)
-    const [p,c]=await Promise.all([
-      supabase.rpc('previsualizar_cierre_diario',{p_fecha:fecha}),
-      supabase.from('cierres_diarios').select('id,fecha,total_ventas,cantidad_ventas,efectivo,digital,otros_pagos,total_reembolsos,diferencia_cajas,cajas_cerradas,ordenes_abiertas,stock_critico,observacion,closed_at,cerrador:staff!cierres_diarios_cerrado_por_fkey(nombre)').order('fecha',{ascending:false}).limit(60),
-    ])
-    if(p.error||c.error) showToast('No se pudo cargar el cierre diario','error')
-    setPreview((p.data as Preview|null)||null)
-    setCierres((c.data as unknown as Cierre[])||[])
-    setLoading(false)
-  }
-  useEffect(()=>{cargar()},[fecha])
-
-  const cerrar=async()=>{
-    if(!preview)return
-    if(preview.cajas_abiertas>0){showToast('Cierra todas las cajas antes del cierre diario','error');return}
-    if(!window.confirm(`¿Cerrar definitivamente la operación del ${fecha}?`))return
-    setCerrando(true)
-    const {error}=await supabase.rpc('cerrar_dia',{p_fecha:fecha,p_observacion:observacion.trim()||null})
-    setCerrando(false)
-    if(error){showToast(error.message,'error');return}
-    showToast('Cierre diario registrado','success');setObservacion('');await cargar()
-  }
-
-  const yaCerrado=cierres.some(c=>c.fecha===fecha)
-  return <div className="p-3 md:p-5 max-w-6xl mx-auto">
-    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5"><div><div className="flex items-center gap-2"><CalendarCheck2 size={20} className="text-cyan-400"/><h1 className="font-display font-bold text-xl text-white">Cierre diario</h1></div><p className="text-xs text-gray-500 mt-1">Consolida la operación de la sucursal y conserva un snapshot histórico inmutable.</p></div><button onClick={cargar} className="rounded-xl border border-[#30363d] bg-[#161b22] p-2.5 text-gray-400"><RefreshCw size={16}/></button></div>
-
-    <section className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4 mb-4"><div className="flex flex-col sm:flex-row gap-3 sm:items-end justify-between"><div><label className="text-xs text-gray-500">Fecha operativa</label><input type="date" max={hoy} value={fecha} onChange={e=>setFecha(e.target.value)} className="mt-1 block rounded-xl border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-white"/></div>{yaCerrado&&<span className="rounded-full border border-green-500/20 bg-green-500/10 px-3 py-1.5 text-xs font-bold text-green-300">Día cerrado</span>}</div></section>
-
-    {loading?<div className="p-10 text-center text-sm text-gray-500">Calculando...</div>:preview&&<><div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"><Metric label="Ventas" value={soles(preview.total_ventas)} sub={`${preview.cantidad_ventas} transacciones`}/><Metric label="Efectivo" value={soles(preview.efectivo)}/><Metric label="Digital" value={soles(preview.digital)}/><Metric label="Otros pagos" value={soles(preview.otros_pagos)}/><Metric label="Reembolsos" value={soles(preview.total_reembolsos)}/><Metric label="Diferencia cajas" value={soles(preview.diferencia_cajas)}/><Metric label="Cajas" value={`${preview.cajas_cerradas} cerradas`} sub={`${preview.cajas_abiertas} abiertas`}/><Metric label="Alertas" value={`${preview.ordenes_abiertas} órdenes`} sub={`${preview.stock_critico} stock crítico`}/></div>
-    {!yaCerrado&&<section className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4 mb-5"><label className="text-xs text-gray-500">Observación del cierre</label><textarea value={observacion} onChange={e=>setObservacion(e.target.value)} rows={3} className="mt-1 w-full resize-none rounded-xl border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-white" placeholder="Incidencias, diferencias o notas de la jefa..."/><div className="flex items-center justify-between gap-3 mt-3"><p className={`text-xs ${preview.cajas_abiertas?'text-red-300':'text-green-300'}`}>{preview.cajas_abiertas?`Hay ${preview.cajas_abiertas} caja(s) abierta(s).`:'Todas las cajas están cerradas.'}</p><button onClick={cerrar} disabled={cerrando||preview.cajas_abiertas>0} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40">{cerrando?'Cerrando...':'Cerrar día'}</button></div></section>}</>}
-
-    <section className="rounded-2xl border border-[#30363d] bg-[#161b22] overflow-hidden"><div className="p-4 border-b border-[#30363d]"><h2 className="text-sm font-bold text-white">Historial de cierres</h2></div><div className="divide-y divide-[#21262d]">{cierres.map(c=><div key={c.id} className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-bold text-white">{new Date(`${c.fecha}T12:00:00`).toLocaleDateString('es-PE',{dateStyle:'medium'})}</p><p className="text-[11px] text-gray-500">{c.cerrador?.nombre||'Administración'} · {new Date(c.closed_at).toLocaleString('es-PE')}</p></div><p className="text-base font-bold text-cyan-300">{soles(c.total_ventas)}</p></div><p className="text-[11px] text-gray-500 mt-2">{c.cantidad_ventas} ventas · reembolsos {soles(c.total_reembolsos)} · diferencia cajas {soles(c.diferencia_cajas)} · {c.cajas_cerradas} cajas</p>{c.observacion&&<p className="text-xs text-gray-300 mt-1.5">{c.observacion}</p>}</div>)}{!cierres.length&&<p className="p-8 text-center text-xs text-gray-600">Aún no existen cierres diarios.</p>}</div></section>
-  </div>
+ const {showToast}=useToast();const hoy=new Date().toISOString().slice(0,10);const [fecha,setFecha]=useState(hoy);const [preview,setPreview]=useState<Preview|null>(null);const [cierres,setCierres]=useState<Cierre[]>([]);const [observacion,setObservacion]=useState('');const [firma,setFirma]=useState('');const [obsAprobacion,setObsAprobacion]=useState('');const [loading,setLoading]=useState(true);const [cerrando,setCerrando]=useState(false);const [aprobando,setAprobando]=useState(false)
+ const cargar=async()=>{setLoading(true);const [p,c]=await Promise.all([supabase.rpc('previsualizar_cierre_diario',{p_fecha:fecha}),supabase.from('cierres_diarios').select('id,fecha,total_ventas,cantidad_ventas,efectivo,digital,otros_pagos,total_reembolsos,diferencia_cajas,cajas_cerradas,ordenes_abiertas,stock_critico,observacion,closed_at,estado_aprobacion,aprobado_at,firma_responsable,observacion_aprobacion,diferencia_critica,conciliaciones_pendientes,reporte_final,cerrador:staff!cierres_diarios_cerrado_por_fkey(nombre),aprobador:staff!cierres_diarios_aprobado_por_fkey(nombre)').order('fecha',{ascending:false}).limit(60)]);if(p.error||c.error)showToast('No se pudo cargar el cierre diario','error');setPreview((p.data as Preview|null)||null);setCierres((c.data as unknown as Cierre[])||[]);setLoading(false)}
+ useEffect(()=>{cargar()},[fecha])
+ const actual=useMemo(()=>cierres.find(c=>c.fecha===fecha)||null,[cierres,fecha])
+ const cerrar=async()=>{if(!preview)return;if(preview.cajas_abiertas>0){showToast('Cierra todas las cajas antes del cierre diario','error');return}if(!window.confirm(`¿Cerrar la operación del ${fecha}?`))return;setCerrando(true);const {error}=await supabase.rpc('cerrar_dia',{p_fecha:fecha,p_observacion:observacion.trim()||null});setCerrando(false);if(error){showToast(error.message,'error');return}showToast('Cierre diario registrado','success');setObservacion('');await cargar()}
+ const buscarAutorizacion=async(cierreId:string)=>{const {data}=await supabase.from('autorizaciones_operativas').select('id').eq('tipo','otro').eq('recurso_tipo','cierre_diario').eq('recurso_id',cierreId).eq('estado','aprobada').order('created_at',{ascending:false}).limit(1);return data?.[0]?.id||null}
+ const aprobar=async()=>{if(!actual)return;setAprobando(true);const authId=await buscarAutorizacion(actual.id);const {error}=await supabase.rpc('aprobar_cierre_diario',{p_cierre_id:actual.id,p_firma:firma,p_observacion:obsAprobacion||null,p_autorizacion_id:authId});setAprobando(false);if(error){showToast(error.message,'error');return}showToast('Cierre aprobado y bloqueado','success');setFirma('');setObsAprobacion('');await cargar()}
+ const solicitarAutorizacion=async()=>{if(!actual)return;const {error}=await supabase.rpc('solicitar_autorizacion',{p_tipo:'otro',p_recurso_tipo:'cierre_diario',p_recurso_id:actual.id,p_motivo:`Autorizar diferencia crítica del cierre ${actual.fecha}`,p_payload:{diferencia_cajas:actual.diferencia_cajas}});if(error){showToast(error.message,'error');return}showToast('Solicitud enviada a Autorizaciones','success')}
+ const imprimir=(c:Cierre)=>{const w=window.open('','_blank','width=850,height=900');if(!w)return;w.document.write(`<html><head><title>Cierre ${c.fecha}</title><style>body{font-family:Arial;padding:28px;color:#111}h1{margin:0 0 4px}table{border-collapse:collapse;width:100%;margin-top:18px}td{padding:8px;border-bottom:1px solid #ddd}td:last-child{text-align:right;font-weight:bold}.sign{margin-top:40px;border-top:1px solid #333;padding-top:8px;width:320px}</style></head><body><h1>Reporte final de tienda</h1><p>Fecha operativa: ${c.fecha}</p><table><tr><td>Ventas</td><td>${soles(c.total_ventas)}</td></tr><tr><td>Transacciones</td><td>${c.cantidad_ventas}</td></tr><tr><td>Efectivo</td><td>${soles(c.efectivo)}</td></tr><tr><td>Digital</td><td>${soles(c.digital)}</td></tr><tr><td>Otros pagos</td><td>${soles(c.otros_pagos)}</td></tr><tr><td>Reembolsos</td><td>${soles(c.total_reembolsos)}</td></tr><tr><td>Diferencia cajas</td><td>${soles(c.diferencia_cajas)}</td></tr><tr><td>Conciliaciones pendientes</td><td>${c.conciliaciones_pendientes}</td></tr></table><p class="sign">Aprobado por: ${c.firma_responsable||'—'}<br/>${c.aprobado_at?new Date(c.aprobado_at).toLocaleString('es-PE'):''}</p></body></html>`);w.document.close();w.focus();w.print()}
+ return <div className="p-3 md:p-5 max-w-6xl mx-auto"><div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-5"><div><div className="flex items-center gap-2"><CalendarCheck2 size={20} className="text-cyan-400"/><h1 className="font-display font-bold text-xl text-white">Cierre diario</h1></div><p className="text-xs text-gray-500 mt-1">Cierre operativo + aprobación gerencial y bloqueo financiero del día.</p></div><button onClick={cargar} className="rounded-xl border border-[#30363d] bg-[#161b22] p-2.5 text-gray-400"><RefreshCw size={16}/></button></div>
+ <section className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4 mb-4"><div className="flex flex-col sm:flex-row gap-3 sm:items-end justify-between"><div><label className="text-xs text-gray-500">Fecha operativa</label><input type="date" max={hoy} value={fecha} onChange={e=>setFecha(e.target.value)} className="mt-1 block rounded-xl border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-white"/></div>{actual&&<span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${actual.estado_aprobacion==='aprobado'?'border-green-500/20 bg-green-500/10 text-green-300':'border-yellow-500/20 bg-yellow-500/10 text-yellow-300'}`}>{actual.estado_aprobacion==='aprobado'?'Aprobado y bloqueado':'Cerrado · pendiente aprobación'}</span>}</div></section>
+ {loading?<div className="p-10 text-center text-sm text-gray-500">Calculando...</div>:preview&&<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4"><Metric label="Ventas" value={soles(preview.total_ventas)} sub={`${preview.cantidad_ventas} transacciones`}/><Metric label="Efectivo" value={soles(preview.efectivo)}/><Metric label="Digital" value={soles(preview.digital)}/><Metric label="Otros pagos" value={soles(preview.otros_pagos)}/><Metric label="Reembolsos" value={soles(preview.total_reembolsos)}/><Metric label="Diferencia cajas" value={soles(preview.diferencia_cajas)}/><Metric label="Cajas" value={`${preview.cajas_cerradas} cerradas`} sub={`${preview.cajas_abiertas} abiertas`}/><Metric label="Alertas" value={`${preview.ordenes_abiertas} órdenes`} sub={`${preview.stock_critico} stock crítico`}/></div>}
+ {!actual&&preview&&<section className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4 mb-5"><label className="text-xs text-gray-500">Observación del cierre</label><textarea value={observacion} onChange={e=>setObservacion(e.target.value)} rows={3} className="mt-1 w-full resize-none rounded-xl border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-white"/><div className="flex items-center justify-between gap-3 mt-3"><p className={`text-xs ${preview.cajas_abiertas?'text-red-300':'text-green-300'}`}>{preview.cajas_abiertas?`Hay ${preview.cajas_abiertas} caja(s) abierta(s).`:'Todas las cajas están cerradas.'}</p><button onClick={cerrar} disabled={cerrando||preview.cajas_abiertas>0} className="rounded-xl bg-cyan-500 px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40">{cerrando?'Cerrando...':'Cerrar día'}</button></div></section>}
+ {actual?.estado_aprobacion==='pendiente'&&<section className="rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-4 mb-5"><div className="flex items-center gap-2 mb-3"><ShieldCheck size={16} className="text-yellow-300"/><h2 className="text-sm font-bold text-white">Aprobación gerencial</h2></div>{Math.abs(Number(actual.diferencia_cajas))>=20&&<div className="mb-3 rounded-xl bg-orange-500/10 border border-orange-500/20 p-3"><p className="text-xs text-orange-200 flex items-center gap-2"><AlertTriangle size={14}/>La diferencia puede superar el umbral crítico. El servidor exigirá autorización si corresponde.</p><div className="mt-2 flex gap-2"><button onClick={solicitarAutorizacion} className="rounded-lg bg-orange-500/20 text-orange-200 px-3 py-2 text-xs font-bold">Solicitar autorización</button><Link to="/autorizaciones" className="rounded-lg border border-[#30363d] px-3 py-2 text-xs text-gray-300">Ir a Autorizaciones</Link></div></div>}<div className="grid md:grid-cols-2 gap-3"><label><span className="text-xs text-gray-500">Firma / responsable</span><input value={firma} onChange={e=>setFirma(e.target.value)} className="input-personal w-full mt-1" placeholder="Nombre responsable"/></label><label><span className="text-xs text-gray-500">Observación de aprobación</span><input value={obsAprobacion} onChange={e=>setObsAprobacion(e.target.value)} className="input-personal w-full mt-1"/></label></div><button onClick={aprobar} disabled={aprobando||firma.trim().length<3} className="mt-3 rounded-xl bg-green-500 px-4 py-2.5 text-sm font-bold text-black disabled:opacity-40">{aprobando?'Aprobando...':'Aprobar y bloquear día'}</button></section>}
+ {actual?.estado_aprobacion==='aprobado'&&<section className="rounded-2xl border border-green-500/20 bg-green-500/5 p-4 mb-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-bold text-green-300">Día aprobado y financieramente bloqueado</p><p className="text-xs text-gray-500 mt-1">{actual.firma_responsable} · {actual.aprobado_at?new Date(actual.aprobado_at).toLocaleString('es-PE'):''} · {actual.conciliaciones_pendientes} conciliaciones no resueltas al aprobar</p></div><button onClick={()=>imprimir(actual)} className="rounded-xl border border-green-500/20 px-3 py-2 text-xs text-green-300 inline-flex items-center gap-2"><Printer size={14}/>Reporte final</button></div></section>}
+ <section className="rounded-2xl border border-[#30363d] bg-[#161b22] overflow-hidden"><div className="p-4 border-b border-[#30363d]"><h2 className="text-sm font-bold text-white">Historial de cierres</h2></div><div className="divide-y divide-[#21262d]">{cierres.map(c=><div key={c.id} className="p-4"><div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-bold text-white">{new Date(`${c.fecha}T12:00:00`).toLocaleDateString('es-PE',{dateStyle:'medium'})}</p><p className="text-[11px] text-gray-500">{c.cerrador?.nombre||'Administración'} · {new Date(c.closed_at).toLocaleString('es-PE')}</p></div><div className="text-right"><p className="text-base font-bold text-cyan-300">{soles(c.total_ventas)}</p><p className={`text-[10px] ${c.estado_aprobacion==='aprobado'?'text-green-400':'text-yellow-400'}`}>{c.estado_aprobacion}</p></div></div><p className="text-[11px] text-gray-500 mt-2">{c.cantidad_ventas} ventas · reembolsos {soles(c.total_reembolsos)} · diferencia {soles(c.diferencia_cajas)} · {c.cajas_cerradas} cajas</p>{c.estado_aprobacion==='aprobado'&&<button onClick={()=>imprimir(c)} className="mt-2 text-[11px] text-cyan-400">Imprimir reporte final</button>}</div>)}{!cierres.length&&<p className="p-8 text-center text-xs text-gray-600">Aún no existen cierres diarios.</p>}</div></section></div>
 }
-
 function Metric({label,value,sub}:{label:string;value:string;sub?:string}){return <div className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4"><p className="text-[11px] text-gray-500">{label}</p><p className="text-lg font-bold text-white mt-1">{value}</p>{sub&&<p className="text-[10px] text-gray-600 mt-1">{sub}</p>}</div>}

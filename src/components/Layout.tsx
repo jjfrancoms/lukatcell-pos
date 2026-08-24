@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle, Database, PlugZap } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
+import { useOnlineStatus, contarVentasPendientes } from '../lib/offline'
+import { sincronizarVentasCoordinadas } from '../lib/offlineAdvanced'
 
 type SucursalAcceso={location_id:string;nombre:string;direccion:string|null;activa:boolean}
 const baseNavItems = [
@@ -37,15 +38,15 @@ export default function Layout() {
     {to:'/valorizacion-inventario',label:'Valorización',icon:Package},
     {to:'/conciliacion-pagos',label:'Conciliación',icon:Wallet},
     {to:'/cuentas-por-pagar',label:'Cuentas por pagar',icon:ShoppingBasket},
-    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/solicitudes-personal',label:'Solicitudes de personal',icon:ClipboardList},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
+    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/solicitudes-personal',label:'Solicitudes de personal',icon:ClipboardList},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/offline',label:'Offline y backup',icon:Database},{to:'/hardware',label:'Hardware POS',icon:PlugZap},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
   ]:operacional
   useEffect(()=>{localStorage.setItem('lukatcell_sidebar_collapsed',collapsed?'1':'0')},[collapsed])
   useEffect(()=>{supabase.rpc('mis_sucursales').then(({data})=>setSucursales((data as SucursalAcceso[])||[]))},[staff?.id])
   const cambiarSucursal=async(locationId:string)=>{if(!locationId||locationId===staff?.location_id)return;const {error}=await supabase.rpc('cambiar_sucursal_activa',{p_location_id:locationId});if(!error)window.location.reload()}
   const actualizar=()=>contarVentasPendientes().then(v=>{setPendientes(v.pendientes);setFallidas(v.fallidas);setAgotadas(v.agotadas)})
   useEffect(()=>{actualizar()},[])
-  useEffect(()=>{if(!online)return;sincronizarVentasPendientes().then(actualizar);const i=setInterval(()=>sincronizarVentasPendientes().then(actualizar),45000);return()=>clearInterval(i)},[online])
-  const reintentar=()=>{setReintentandoManual(true);sincronizarVentasPendientes(true).then(()=>{actualizar();setReintentandoManual(false)})}
+  useEffect(()=>{if(!online)return;sincronizarVentasCoordinadas().then(actualizar);const i=setInterval(()=>sincronizarVentasCoordinadas().then(actualizar),45000);return()=>clearInterval(i)},[online])
+  const reintentar=()=>{setReintentandoManual(true);sincronizarVentasCoordinadas(true).then(()=>{actualizar();setReintentandoManual(false)})}
   const EstadoBadge=({compact}:{compact?:boolean})=><div className="flex items-center gap-2 flex-wrap"><span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${jornadaActiva?'text-green-400':'text-gray-500'}`}><span className={`w-1.5 h-1.5 rounded-full ${jornadaActiva?'bg-green-400':'bg-gray-500'}`}/>{compact?(jornadaActiva?'En jornada':'Fuera de jornada'):(jornadaActiva?'Jornada activa':'Sin jornada activa')}</span>{!compact&&<span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId?'text-cyan-400':'text-gray-600'}`}><span className={`w-1.5 h-1.5 rounded-full ${cashSessionId?'bg-cyan-400':'bg-gray-600'}`}/>{cashSessionId?'Caja abierta':'Caja cerrada'}</span>}</div>
   const SelectorSucursal=({mobile=false}:{mobile?:boolean})=>sucursales.length>1?<div className={mobile?'px-4 py-2':'px-3 py-2 border-b border-[#30363d]'}><p className="text-[9px] uppercase tracking-wider text-gray-600 mb-1">Sucursal activa</p><select value={staff?.location_id||''} onChange={e=>cambiarSucursal(e.target.value)} className="w-full rounded-lg border border-[#30363d] bg-[#0d1117] px-2 py-1.5 text-[11px] text-gray-300">{sucursales.map(s=><option key={s.location_id} value={s.location_id}>{s.nombre}</option>)}</select></div>:null
   const roleClass=isAdmin?'role-administrador':`role-${staff?.puesto||'sin-puesto'}`

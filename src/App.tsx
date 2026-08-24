@@ -9,6 +9,7 @@ import Venta from './pages/Venta'
 import Caja from './pages/Caja'
 import Inventario from './pages/Inventario'
 import Reportes from './pages/Reportes'
+import ReportesAvanzados from './pages/ReportesAvanzados'
 import OrdenesServicio from './pages/OrdenesServicio'
 import Taller from './pages/Taller'
 import Clientes from './pages/Clientes'
@@ -31,6 +32,8 @@ import ValorizacionInventario from './pages/ValorizacionInventario'
 import CuentasPorPagar from './pages/CuentasPorPagar'
 import ConciliacionPagos from './pages/ConciliacionPagos'
 import ComparadorProveedores from './pages/ComparadorProveedores'
+import Sucursales from './pages/Sucursales'
+import Promociones from './pages/Promociones'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -64,6 +67,9 @@ export default function App() {
       <Route path="conteo-inventario" element={<InventoryOpsRoute><ConteoInventario /></InventoryOpsRoute>} />
       <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
+      <Route path="reportes-avanzados" element={<AdminRoute><ReportesAvanzados /></AdminRoute>} />
+      <Route path="promociones" element={<AdminRoute><Promociones /></AdminRoute>} />
+      <Route path="sucursales" element={<AdminRoute><Sucursales /></AdminRoute>} />
       <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />
       <Route path="devoluciones" element={<AdminRoute><Devoluciones /></AdminRoute>} />
       <Route path="notas-credito" element={<AdminRoute><NotasCredito /></AdminRoute>} />

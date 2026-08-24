@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node scripts/verify-security.mjs",
+    "test": "node scripts/verify-security.mjs && node scripts/verify-elite-wave2.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

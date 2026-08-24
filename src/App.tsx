@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './lib/auth'
 import { ToastProvider } from './lib/toast'
 import { ConfigProvider } from './lib/config'
 import Layout from './components/Layout'
+import MFAGate from './components/MFAGate'
 import Login from './pages/Login'
 import Venta from './pages/Venta'
 import Caja from './pages/Caja'
@@ -34,6 +35,7 @@ import ConciliacionPagos from './pages/ConciliacionPagos'
 import ComparadorProveedores from './pages/ComparadorProveedores'
 import Sucursales from './pages/Sucursales'
 import Promociones from './pages/Promociones'
+import SeguridadMFA from './pages/SeguridadMFA'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -41,7 +43,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, staff, loading } = useAuth()
   if (loading) return <div className="h-screen flex items-center justify-center bg-[#0d1117]"><Loader2 className="animate-spin text-cyan-500" size={28} /></div>
   if (!session || !staff) return <Navigate to="/login" replace />
-  return <>{children}</>
+  return <MFAGate>{children}</MFAGate>
 }
 function AdminRoute({ children }: { children: React.ReactNode }) { const { isAdmin } = useAuth(); return isAdmin ? <>{children}</> : <Navigate to="/" replace /> }
 function JornadaRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva } = useAuth(); return jornadaActiva ? <>{children}</> : <Navigate to="/jornada" replace /> }
@@ -55,6 +57,7 @@ export default function App() {
     <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
       <Route index element={<VentaRoute />} />
       <Route path="jornada" element={<MiJornada />} />
+      <Route path="seguridad" element={<SeguridadMFA />} />
       <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
       <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />

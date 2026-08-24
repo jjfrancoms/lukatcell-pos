@@ -10,6 +10,7 @@ import Caja from './pages/Caja'
 import Inventario from './pages/Inventario'
 import Reportes from './pages/Reportes'
 import OrdenesServicio from './pages/OrdenesServicio'
+import Taller from './pages/Taller'
 import Clientes from './pages/Clientes'
 import Personal from './pages/Personal'
 import PermisosPersonal from './pages/PermisosPersonal'
@@ -50,6 +51,7 @@ export default function App() {
       <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
       <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
+      <Route path="taller" element={<InventoryOpsRoute><Taller /></InventoryOpsRoute>} />
       <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
       <Route path="seriales" element={<OperationalRoute><Seriales /></OperationalRoute>} />
       <Route path="autorizaciones" element={<Autorizaciones />} />

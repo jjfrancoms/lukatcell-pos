@@ -14,6 +14,7 @@ import Clientes from './pages/Clientes'
 import Personal from './pages/Personal'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
+import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -72,6 +73,7 @@ export default function App() {
                 <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
                 <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
                 <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
+                <Route path="auditoria" element={<AdminRoute><Auditoria /></AdminRoute>} />
                 <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />
               </Route>
             </Routes>

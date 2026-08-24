@@ -190,12 +190,19 @@ export default function Venta() {
     const descuento = calcularDescuentoLinea(item.precio_unitario, val, descTipo)
     const pct = item.precio_unitario > 0 ? descuento / item.precio_unitario * 100 : 0
     if (!isAdmin && pct > limiteDescuento + 0.0001) {
-      const { error } = await supabase.rpc('solicitar_autorizacion', {
-        p_tipo: 'descuento', p_motivo: `Descuento solicitado ${pct.toFixed(2)}%`, p_recurso_tipo: 'variant', p_recurso_id: vid,
-        p_payload: { variant_id: vid, porcentaje: pct, descuento_unitario: descuento, precio_unitario: item.precio_unitario }
+      const { data: autorizado, error: consumeError } = await supabase.rpc('consumir_autorizacion_descuento', {
+        p_variant_id: vid, p_porcentaje: pct, p_descuento_unitario: descuento
       })
-      showToast(error ? 'No se pudo solicitar autorización' : `Supera tu límite (${limiteDescuento.toFixed(2)}%). Autorización solicitada.`, error ? 'error' : 'info')
-      setDescItem(null); setDescValor(''); return
+      if (consumeError) { showToast('No se pudo validar la autorización', 'error'); return }
+      if (!autorizado) {
+        const { error } = await supabase.rpc('solicitar_autorizacion', {
+          p_tipo: 'descuento', p_motivo: `Descuento solicitado ${pct.toFixed(2)}%`, p_recurso_tipo: 'variant', p_recurso_id: vid,
+          p_payload: { variant_id: vid, porcentaje: pct, descuento_unitario: descuento, precio_unitario: item.precio_unitario }
+        })
+        showToast(error ? 'No se pudo solicitar autorización' : `Supera tu límite (${limiteDescuento.toFixed(2)}%). Autorización solicitada.`, error ? 'error' : 'info')
+        setDescItem(null); setDescValor(''); return
+      }
+      showToast('Autorización de descuento aplicada', 'success')
     }
     setDescuentosManuales((m) => ({ ...m, [vid]: descuento }))
     setCart((p) => p.map((i) => i.variant.id === vid ? { ...i, descuento } : i))

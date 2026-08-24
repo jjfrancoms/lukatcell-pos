@@ -16,6 +16,11 @@ const devoluciones = read('src/pages/Devoluciones.tsx')
 const notas = read('src/pages/NotasCredito.tsx')
 const autorizaciones = read('src/pages/Autorizaciones.tsx')
 const cierre = read('src/pages/CierreDiario.tsx')
+const proveedores = read('src/pages/Proveedores.tsx')
+const compras = read('src/pages/Compras.tsx')
+const transferencias = read('src/pages/Transferencias.tsx')
+const conteo = read('src/pages/ConteoInventario.tsx')
+const seriales = read('src/pages/Seriales.tsx')
 const app = read('src/App.tsx')
 const layout = read('src/components/Layout.tsx')
 const dashboard = read('src/pages/DashboardAdmin.tsx')
@@ -37,15 +42,18 @@ assert(personal.includes("rpc('reprogramar_staff_turnos'"), 'Personal reprograma
 assert(!personal.includes("from('staff_turnos').delete()"), 'Personal no borra turnos directamente')
 
 for (const [path, component] of [
-  ['dashboard','DashboardAdmin'],['permisos','PermisosPersonal'],['cambios-turno','CambiosTurno'],['anulaciones','Anulaciones'],['devoluciones','Devoluciones'],['notas-credito','NotasCredito'],['cierre-diario','CierreDiario'],['auditoria','Auditoria']
+  ['dashboard','DashboardAdmin'],['permisos','PermisosPersonal'],['cambios-turno','CambiosTurno'],['anulaciones','Anulaciones'],['devoluciones','Devoluciones'],['notas-credito','NotasCredito'],['cierre-diario','CierreDiario'],['proveedores','Proveedores'],['auditoria','Auditoria']
 ]) assert(app.includes(`path="${path}" element={<AdminRoute><${component} /></AdminRoute>}`), `${path} protegido por AdminRoute`)
 assert(app.includes('path="autorizaciones" element={<Autorizaciones />}'), 'Autorizaciones disponible a personal autenticado')
+for (const [path, component] of [['compras','Compras'],['transferencias','Transferencias'],['conteo-inventario','ConteoInventario'],['seriales','Seriales']]) {
+  assert(app.includes(`path="${path}" element={<InventoryOpsRoute><${component} /></InventoryOpsRoute>}`), `${path} protegido por InventoryOpsRoute`)
+}
 
-assert(layout.includes("{ to: '/anulaciones', label: 'Anulaciones'"), 'Anulaciones solo en menú admin')
-assert(layout.includes("{ to: '/devoluciones', label: 'Devoluciones'"), 'Devoluciones solo en menú admin')
-assert(layout.includes("{ to: '/notas-credito', label: 'Notas de crédito'"), 'Notas de crédito solo en menú admin')
-assert(layout.includes("{ to: '/cierre-diario', label: 'Cierre diario'"), 'Cierre diario solo en menú admin')
-assert(layout.includes("{ to: '/autorizaciones', label: 'Autorizaciones'"), 'Autorizaciones en navegación operativa')
+assert(layout.includes("to:'/compras'"), 'Compras en navegación de inventario avanzado')
+assert(layout.includes("to:'/transferencias'"), 'Transferencias en navegación de inventario avanzado')
+assert(layout.includes("to:'/conteo-inventario'"), 'Conteo físico en navegación de inventario avanzado')
+assert(layout.includes("to:'/seriales'"), 'Seriales en navegación de inventario avanzado')
+assert(layout.includes("to:'/proveedores'"), 'Proveedores solo en navegación administrativa')
 
 assert(permisos.includes("rpc('registrar_permiso_personal'"), 'Permisos usan RPC')
 assert(cambiosTurno.includes("rpc('registrar_excepcion_turno'"), 'Cambios de turno usan RPC')
@@ -69,6 +77,27 @@ assert(!autorizaciones.includes("from('autorizaciones_operativas').update("), 'U
 assert(cierre.includes("rpc('previsualizar_cierre_diario'"), 'Cierre diario usa preview servidor')
 assert(cierre.includes("rpc('cerrar_dia'"), 'Cierre diario se ejecuta por RPC')
 assert(!cierre.includes("from('cierres_diarios').insert("), 'UI no crea cierre directamente')
+
+// P2 — abastecimiento e inventario avanzado
+assert(proveedores.includes("rpc('guardar_proveedor'"), 'Proveedores se guardan por RPC administrativa')
+assert(!proveedores.includes("from('proveedores').insert("), 'Proveedores no se insertan directamente desde UI')
+assert(compras.includes("rpc('crear_orden_compra'"), 'Órdenes de compra usan RPC')
+assert(compras.includes("rpc('recibir_orden_compra'"), 'Recepción de compras usa RPC transaccional')
+assert(!compras.includes("from('inventory').update("), 'Compras no modifican inventario desde UI')
+assert(compras.includes('seriales'), 'Recepción contempla seriales/IMEI')
+assert(transferencias.includes("rpc('crear_transferencia_stock'"), 'Transferencias se crean por RPC')
+assert(transferencias.includes("rpc('despachar_transferencia_stock'"), 'Despacho usa RPC')
+assert(transferencias.includes("rpc('recibir_transferencia_stock'"), 'Recepción de transferencia usa RPC')
+assert(!transferencias.includes("from('inventory').update("), 'Transferencias no modifican inventario directamente')
+assert(transferencias.includes("rpc('seriales_disponibles'"), 'Transferencias seleccionan seriales disponibles')
+assert(conteo.includes("rpc('iniciar_inventario_fisico'"), 'Conteo físico se inicia por RPC')
+assert(conteo.includes("rpc('registrar_conteo_inventario'"), 'Conteo físico registra cantidades por RPC')
+assert(conteo.includes("rpc('cerrar_inventario_fisico'"), 'Conteo físico aplica diferencias solo al cierre')
+assert(!conteo.includes("from('inventory').update("), 'Conteo físico no altera inventario desde UI')
+assert(seriales.includes("rpc('configurar_control_serial'"), 'Control serial se configura por RPC')
+assert(seriales.includes("rpc('registrar_seriales'"), 'Alta de seriales usa RPC')
+assert(seriales.includes("rpc('reservar_seriales_carrito'"), 'Seriales pueden reservarse para venta')
+assert(!seriales.includes("from('product_serials').insert("), 'UI no inserta IMEI/seriales directamente')
 
 assert(jornada.includes("['permiso', 'vacaciones', 'licencia']"), 'Mi Jornada reconoce permisos')
 assert(dashboard.includes('personal_permisos'), 'Dashboard cuenta permisos')

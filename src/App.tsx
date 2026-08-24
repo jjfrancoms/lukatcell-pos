@@ -25,6 +25,7 @@ import Proveedores from './pages/Proveedores'
 import Compras from './pages/Compras'
 import Transferencias from './pages/Transferencias'
 import ConteoInventario from './pages/ConteoInventario'
+import Seriales from './pages/Seriales'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -50,6 +51,7 @@ export default function App() {
       <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
       <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
+      <Route path="seriales" element={<OperationalRoute><Seriales /></OperationalRoute>} />
       <Route path="autorizaciones" element={<Autorizaciones />} />
       <Route path="compras" element={<InventoryOpsRoute><Compras /></InventoryOpsRoute>} />
       <Route path="transferencias" element={<InventoryOpsRoute><Transferencias /></InventoryOpsRoute>} />

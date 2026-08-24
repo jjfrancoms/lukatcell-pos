@@ -27,6 +27,9 @@ import Compras from './pages/Compras'
 import Transferencias from './pages/Transferencias'
 import ConteoInventario from './pages/ConteoInventario'
 import Seriales from './pages/Seriales'
+import ValorizacionInventario from './pages/ValorizacionInventario'
+import CuentasPorPagar from './pages/CuentasPorPagar'
+import ConciliacionPagos from './pages/ConciliacionPagos'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -64,6 +67,9 @@ export default function App() {
       <Route path="devoluciones" element={<AdminRoute><Devoluciones /></AdminRoute>} />
       <Route path="notas-credito" element={<AdminRoute><NotasCredito /></AdminRoute>} />
       <Route path="cierre-diario" element={<AdminRoute><CierreDiario /></AdminRoute>} />
+      <Route path="conciliacion-pagos" element={<AdminRoute><ConciliacionPagos /></AdminRoute>} />
+      <Route path="cuentas-por-pagar" element={<AdminRoute><CuentasPorPagar /></AdminRoute>} />
+      <Route path="valorizacion-inventario" element={<AdminRoute><ValorizacionInventario /></AdminRoute>} />
       <Route path="proveedores" element={<AdminRoute><Proveedores /></AdminRoute>} />
       <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
       <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />

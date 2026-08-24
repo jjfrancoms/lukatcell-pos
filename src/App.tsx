@@ -16,6 +16,7 @@ import PermisosPersonal from './pages/PermisosPersonal'
 import CambiosTurno from './pages/CambiosTurno'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
+import Anulaciones from './pages/Anulaciones'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -74,6 +75,7 @@ export default function App() {
                 <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
                 <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
                 <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
+                <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />
                 <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
                 <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
                 <Route path="cambios-turno" element={<AdminRoute><CambiosTurno /></AdminRoute>} />

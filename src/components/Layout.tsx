@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle, Database, PlugZap } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle, Database, PlugZap, Activity } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { useOnlineStatus, contarVentasPendientes } from '../lib/offline'
@@ -38,7 +38,7 @@ export default function Layout() {
     {to:'/valorizacion-inventario',label:'Valorización',icon:Package},
     {to:'/conciliacion-pagos',label:'Conciliación',icon:Wallet},
     {to:'/cuentas-por-pagar',label:'Cuentas por pagar',icon:ShoppingBasket},
-    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/solicitudes-personal',label:'Solicitudes de personal',icon:ClipboardList},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/offline',label:'Offline y backup',icon:Database},{to:'/hardware',label:'Hardware POS',icon:PlugZap},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
+    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/solicitudes-personal',label:'Solicitudes de personal',icon:ClipboardList},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/offline',label:'Offline y backup',icon:Database},{to:'/hardware',label:'Hardware POS',icon:PlugZap},{to:'/estado-sistema',label:'Estado del sistema',icon:Activity},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
   ]:operacional
   useEffect(()=>{localStorage.setItem('lukatcell_sidebar_collapsed',collapsed?'1':'0')},[collapsed])
   useEffect(()=>{supabase.rpc('mis_sucursales').then(({data})=>setSucursales((data as SucursalAcceso[])||[]))},[staff?.id])

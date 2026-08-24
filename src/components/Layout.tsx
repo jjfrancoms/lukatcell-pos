@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
@@ -32,6 +32,7 @@ export default function Layout() {
         { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
         ...baseNavItems,
         { to: '/reportes', label: 'Reportes', icon: BarChart3 },
+        { to: '/anulaciones', label: 'Anulaciones', icon: Ban },
         { to: '/personal', label: 'Personal', icon: UserCog },
         { to: '/permisos', label: 'Permisos', icon: CalendarOff },
         { to: '/cambios-turno', label: 'Cambios de turno', icon: CalendarClock },
@@ -128,9 +129,7 @@ export default function Layout() {
             </div>
           )}
         </div>
-        {!collapsed && (
-          <div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge /></div>
-        )}
+        {!collapsed && <div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge /></div>}
         <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink key={to} to={to} end={to === '/'} title={collapsed ? label : undefined}
@@ -142,52 +141,20 @@ export default function Layout() {
           ))}
         </nav>
         <div className="border-t border-[#30363d] p-2">
-          {!collapsed && staff && (
-            <div className="px-2 py-2 mb-1">
-              <p className="text-xs font-semibold text-white truncate">{staff.nombre}</p>
-              <p className="text-[10px] text-gray-500 capitalize">{staff.puesto || staff.rol}</p>
-            </div>
-          )}
-          <button onClick={() => signOut()} title="Cerrar sesión" aria-label="Cerrar sesión"
-            className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
-            <LogOut size={16} />{!collapsed && <span className="text-xs">Cerrar sesión</span>}
-          </button>
-          <button onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'}
-            className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white hover:bg-[#161b22] transition-all mt-0.5 ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
-            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}
-            {!collapsed && <span className="text-xs">Colapsar</span>}
+          {!collapsed && staff && <div className="px-2 py-2 mb-1"><p className="text-xs font-semibold text-white truncate">{staff.nombre}</p><p className="text-[10px] text-gray-500 capitalize">{staff.puesto || staff.rol}</p></div>}
+          <button onClick={() => signOut()} title="Cerrar sesión" aria-label="Cerrar sesión" className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all ${collapsed ? 'justify-center px-0' : 'px-2'}`}><LogOut size={16} />{!collapsed && <span className="text-xs">Cerrar sesión</span>}</button>
+          <button onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expandir menú' : 'Colapsar menú'} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white hover:bg-[#161b22] transition-all mt-0.5 ${collapsed ? 'justify-center px-0' : 'px-2'}`}>
+            {collapsed ? <ChevronsRight size={16} /> : <ChevronsLeft size={16} />}{!collapsed && <span className="text-xs">Colapsar</span>}
           </button>
         </div>
       </aside>
 
       <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">
-        {!online && (
-          <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
-            <WifiOff size={13} /> ● OFFLINE — las ventas se guardarán y sincronizarán al reconectar
-            {pendientes > 0 && <span className="ml-1">({pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'})</span>}
-          </div>
-        )}
-        {online && pendientes > 0 && (
-          <div className="bg-cyan-500/15 border-b border-cyan-500/30 text-cyan-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
-            ● ONLINE — sincronizando {pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'}...
-          </div>
-        )}
-        {online && pendientes === 0 && fallidas > 0 && (
-          <div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">
-            {fallidas} venta{fallidas === 1 ? '' : 's'} no se pudo{fallidas === 1 ? '' : 'ieron'} sincronizar — se reintentará automáticamente
-          </div>
-        )}
-        {online && agotadas > 0 && (
-          <div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center justify-between gap-2 shrink-0">
-            <span>{agotadas} venta{agotadas === 1 ? '' : 's'} requiere{agotadas === 1 ? '' : 'n'} atención — no se pudo{agotadas === 1 ? '' : 'ieron'} sincronizar tras varios intentos</span>
-            <button onClick={reintentarAgotadas} disabled={reintentandoManual} className="underline shrink-0 disabled:opacity-50">
-              {reintentandoManual ? 'Reintentando...' : 'Reintentar ahora'}
-            </button>
-          </div>
-        )}
-        <div className="flex-1 min-w-0 min-h-0">
-          <Outlet />
-        </div>
+        {!online && <div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0"><WifiOff size={13} /> ● OFFLINE — las ventas se guardarán y sincronizarán al reconectar{pendientes > 0 && <span className="ml-1">({pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'})</span>}</div>}
+        {online && pendientes > 0 && <div className="bg-cyan-500/15 border-b border-cyan-500/30 text-cyan-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">● ONLINE — sincronizando {pendientes} venta{pendientes === 1 ? '' : 's'} pendiente{pendientes === 1 ? '' : 's'}...</div>}
+        {online && pendientes === 0 && fallidas > 0 && <div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0">{fallidas} venta{fallidas === 1 ? '' : 's'} no se pudo{fallidas === 1 ? '' : 'ieron'} sincronizar — se reintentará automáticamente</div>}
+        {online && agotadas > 0 && <div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center justify-between gap-2 shrink-0"><span>{agotadas} venta{agotadas === 1 ? '' : 's'} requiere{agotadas === 1 ? '' : 'n'} atención — no se pudo{agotadas === 1 ? '' : 'ieron'} sincronizar tras varios intentos</span><button onClick={reintentarAgotadas} disabled={reintentandoManual} className="underline shrink-0 disabled:opacity-50">{reintentandoManual ? 'Reintentando...' : 'Reintentar ahora'}</button></div>}
+        <div className="flex-1 min-w-0 min-h-0"><Outlet /></div>
       </main>
     </div>
   )

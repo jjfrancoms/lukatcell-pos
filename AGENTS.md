@@ -8,6 +8,8 @@ El sistema multiagente del proyecto se llama **Equipo Elite**.
 
 Cuando el usuario diga **Equipo Elite**, se refiere a este grupo completo de agentes coordinados y a su flujo de trabajo persistente.
 
+Cuando existan varios bloques principales pendientes, se asigna **un Equipo Elite completo por bloque**. El mapa oficial de squads vive en `docs/agents/ELITE_TEAMS.md` y la coordinación global entre squads se denomina **ELITE COMMAND**.
+
 ## Objetivo
 
 Reducir el tiempo de desarrollo evitando análisis repetidos, cambios incompatibles y pruebas tardías. El trabajo se divide en agentes con responsabilidades claras, carriles paralelos y una memoria compartida versionada en Git.
@@ -85,7 +87,7 @@ No se permite:
 
 ## Flujo rápido
 
-`REQUEST -> EQUIPO ELITE -> ORCHESTRATOR -> CREATOR-1 + CREATOR-2 -> DEV-1 + DEV-2 + DEV-3 || TESTER-1 + TESTER-2 + TESTER-3 -> FIX -> RETEST -> DEPLOY -> MEMORY UPDATE`
+`REQUEST -> EQUIPO ELITE -> ELITE COMMAND -> ORCHESTRATOR -> CREATOR-1 + CREATOR-2 -> DEV-1 + DEV-2 + DEV-3 || TESTER-1 + TESTER-2 + TESTER-3 -> FIX -> RETEST -> DEPLOY -> MEMORY UPDATE`
 
 Los seis agentes de DEV/TEST pueden trabajar en paralelo si sus escrituras no colisionan.
 
@@ -112,6 +114,7 @@ NEXT: <acción exacta siguiente>
 - `docs/agents/DECISIONS.md`: decisiones que no deben rediscutirse.
 - `docs/agents/TEST_PROTOCOL.md`: protocolo de pruebas.
 - `docs/agents/TEAM_MATRIX.md`: asignación de agentes/carriles y reglas de concurrencia.
+- `docs/agents/ELITE_TEAMS.md`: un Equipo Elite completo por cada pendiente principal y sus dependencias cruzadas.
 
 Todos los agentes de **Equipo Elite** deben leer la memoria relevante antes de trabajar. ORCHESTRATOR actualiza STATE/BACKLOG al cerrar cada bloque; DECISIONS cuando exista una decisión arquitectónica nueva.
 

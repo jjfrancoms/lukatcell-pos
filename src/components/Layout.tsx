@@ -25,7 +25,11 @@ export default function Layout() {
   const operacional=[...baseNavItems,...(puedeInventarioAvanzado?[{to:'/taller',label:'Taller',icon:Wrench},{to:'/compras',label:'Compras',icon:ShoppingBasket},{to:'/transferencias',label:'Transferencias',icon:ArrowRightLeft},{to:'/conteo-inventario',label:'Conteo físico',icon:ClipboardCheck}]:[])]
   const navItems=isAdmin?[
     {to:'/dashboard',label:'Dashboard',icon:LayoutDashboard},...operacional,
-    {to:'/reportes',label:'Reportes',icon:BarChart3},{to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
+    {to:'/reportes',label:'Reportes',icon:BarChart3},
+    {to:'/valorizacion-inventario',label:'Valorización',icon:Package},
+    {to:'/conciliacion-pagos',label:'Conciliación',icon:Wallet},
+    {to:'/cuentas-por-pagar',label:'Cuentas por pagar',icon:ShoppingBasket},
+    {to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
   ]:operacional
   useEffect(()=>{localStorage.setItem('lukatcell_sidebar_collapsed',collapsed?'1':'0')},[collapsed])
   const actualizar=()=>contarVentasPendientes().then(v=>{setPendientes(v.pendientes);setFallidas(v.fallidas);setAgotadas(v.agotadas)})

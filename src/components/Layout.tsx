@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2 } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
@@ -16,56 +16,28 @@ const baseNavItems = [
 
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
-  const [collapsed, setCollapsed] = useState(() => {
-    const stored = localStorage.getItem('lukatcell_sidebar_collapsed')
-    if (stored !== null) return stored === '1'
-    return window.innerWidth < 1024
-  })
+  const [collapsed, setCollapsed] = useState(() => { const stored=localStorage.getItem('lukatcell_sidebar_collapsed'); return stored!==null?stored==='1':window.innerWidth<1024 })
   const { staff, isAdmin, cashSessionId, jornadaActiva, signOut } = useAuth()
   const { online } = useOnlineStatus()
-  const [pendientes, setPendientes] = useState(0)
-  const [fallidas, setFallidas] = useState(0)
-  const [agotadas, setAgotadas] = useState(0)
-  const [reintentandoManual, setReintentandoManual] = useState(false)
-
-  const navItems = isAdmin
-    ? [
-        { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        ...baseNavItems,
-        { to: '/reportes', label: 'Reportes', icon: BarChart3 },
-        { to: '/anulaciones', label: 'Anulaciones', icon: Ban },
-        { to: '/devoluciones', label: 'Devoluciones', icon: RotateCcw },
-        { to: '/notas-credito', label: 'Notas de crédito', icon: FileMinus2 },
-        { to: '/cierre-diario', label: 'Cierre diario', icon: CalendarCheck2 },
-        { to: '/personal', label: 'Personal', icon: UserCog },
-        { to: '/permisos', label: 'Permisos', icon: CalendarOff },
-        { to: '/cambios-turno', label: 'Cambios de turno', icon: CalendarClock },
-        { to: '/auditoria', label: 'Auditoría', icon: ShieldCheck },
-        { to: '/configuracion', label: 'Configuración', icon: Settings },
-      ]
-    : baseNavItems
-
-  useEffect(() => { localStorage.setItem('lukatcell_sidebar_collapsed', collapsed ? '1' : '0') }, [collapsed])
-  const actualizarContador = () => contarVentasPendientes().then(({ pendientes, fallidas, agotadas }) => { setPendientes(pendientes); setFallidas(fallidas); setAgotadas(agotadas) })
-  useEffect(() => { actualizarContador() }, [])
-  useEffect(() => {
-    if (!online) return
-    sincronizarVentasPendientes().then(() => actualizarContador())
-    const interval = setInterval(() => { sincronizarVentasPendientes().then(() => actualizarContador()) }, 45000)
-    return () => clearInterval(interval)
-  }, [online])
-  const reintentarAgotadas = () => { setReintentandoManual(true); sincronizarVentasPendientes(true).then(() => { actualizarContador(); setReintentandoManual(false) }) }
-
-  const EstadoBadge = ({ compact }: { compact?: boolean }) => <div className="flex items-center gap-2 flex-wrap">
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${jornadaActiva ? 'text-green-400' : 'text-gray-500'}`}><span className={`w-1.5 h-1.5 rounded-full ${jornadaActiva ? 'bg-green-400' : 'bg-gray-500'}`} />{compact ? (jornadaActiva ? 'En jornada' : 'Fuera de jornada') : (jornadaActiva ? 'Jornada activa' : 'Sin jornada activa')}</span>
-    {!compact && <span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId ? 'text-cyan-400' : 'text-gray-600'}`}><span className={`w-1.5 h-1.5 rounded-full ${cashSessionId ? 'bg-cyan-400' : 'bg-gray-600'}`} />{cashSessionId ? 'Caja abierta' : 'Caja cerrada'}</span>}
-  </div>
-
-  const roleClass = isAdmin ? 'role-administrador' : `role-${staff?.puesto || 'sin-puesto'}`
+  const [pendientes,setPendientes]=useState(0), [fallidas,setFallidas]=useState(0), [agotadas,setAgotadas]=useState(0), [reintentandoManual,setReintentandoManual]=useState(false)
+  const puedeCompras=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||'')
+  const operacional=[...baseNavItems,...(puedeCompras?[{to:'/compras',label:'Compras',icon:ShoppingBasket}]:[])]
+  const navItems=isAdmin?[
+    {to:'/dashboard',label:'Dashboard',icon:LayoutDashboard},...operacional,
+    {to:'/reportes',label:'Reportes',icon:BarChart3},{to:'/anulaciones',label:'Anulaciones',icon:Ban},{to:'/devoluciones',label:'Devoluciones',icon:RotateCcw},{to:'/notas-credito',label:'Notas de crédito',icon:FileMinus2},{to:'/cierre-diario',label:'Cierre diario',icon:CalendarCheck2},{to:'/proveedores',label:'Proveedores',icon:Building2},{to:'/personal',label:'Personal',icon:UserCog},{to:'/permisos',label:'Permisos',icon:CalendarOff},{to:'/cambios-turno',label:'Cambios de turno',icon:CalendarClock},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings}
+  ]:operacional
+  useEffect(()=>{localStorage.setItem('lukatcell_sidebar_collapsed',collapsed?'1':'0')},[collapsed])
+  const actualizar=()=>contarVentasPendientes().then(v=>{setPendientes(v.pendientes);setFallidas(v.fallidas);setAgotadas(v.agotadas)})
+  useEffect(()=>{actualizar()},[])
+  useEffect(()=>{if(!online)return;sincronizarVentasPendientes().then(actualizar);const i=setInterval(()=>sincronizarVentasPendientes().then(actualizar),45000);return()=>clearInterval(i)},[online])
+  const reintentar=()=>{setReintentandoManual(true);sincronizarVentasPendientes(true).then(()=>{actualizar();setReintentandoManual(false)})}
+  const EstadoBadge=({compact}:{compact?:boolean})=><div className="flex items-center gap-2 flex-wrap"><span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${jornadaActiva?'text-green-400':'text-gray-500'}`}><span className={`w-1.5 h-1.5 rounded-full ${jornadaActiva?'bg-green-400':'bg-gray-500'}`}/>{compact?(jornadaActiva?'En jornada':'Fuera de jornada'):(jornadaActiva?'Jornada activa':'Sin jornada activa')}</span>{!compact&&<span className={`inline-flex items-center gap-1.5 text-[10px] font-semibold ${cashSessionId?'text-cyan-400':'text-gray-600'}`}><span className={`w-1.5 h-1.5 rounded-full ${cashSessionId?'bg-cyan-400':'bg-gray-600'}`}/>{cashSessionId?'Caja abierta':'Caja cerrada'}</span>}</div>
+  const roleClass=isAdmin?'role-administrador':`role-${staff?.puesto||'sin-puesto'}`
+  const links=(mobile=false)=>navItems.map(({to,label,icon:Icon})=><NavLink key={to} to={to} end={to==='/'} onClick={()=>mobile&&setMenuOpen(false)} title={!mobile&&collapsed?label:undefined} className={({isActive})=>`flex items-center gap-3 rounded-lg transition-all ${mobile?'px-4 py-3 mb-1':`py-2.5 mx-2 mb-0.5 ${collapsed?'justify-center px-0':'px-4'}`} ${isActive?'bg-cyan-500/15 text-cyan-400 font-semibold border border-cyan-500/30':'text-gray-500 hover:bg-[#161b22] hover:text-gray-300 border border-transparent'}`}><Icon size={18}/>{(mobile||!collapsed)&&<span className="text-sm">{label}</span>}</NavLink>)
   return <div className={`flex h-screen bg-[#0d1117] ${roleClass}`}>
-    <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 pb-3" style={{paddingTop:'calc(0.75rem + env(safe-area-inset-top))'}}><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center"><Smartphone size={14} className="text-black"/></div><div><span className="font-display font-bold text-sm text-white block leading-none">LUKATCELL</span><EstadoBadge compact/></div></div><div className="flex items-center gap-3">{!online&&<WifiOff size={16} className="text-orange-400" aria-label="Sin conexión"/>}<button onClick={()=>setMenuOpen(!menuOpen)} className="text-gray-400" aria-label={menuOpen?'Cerrar menú':'Abrir menú'}>{menuOpen?<X size={22}/>:<Menu size={22}/>}</button></div></div>
-    {menuOpen&&<div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={()=>setMenuOpen(false)}><nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto overflow-x-hidden" onClick={e=>e.stopPropagation()}>{navItems.map(({to,label,icon:Icon})=><NavLink key={to} to={to} end={to==='/'} onClick={()=>setMenuOpen(false)} className={({isActive})=>`flex items-center gap-3 px-4 py-3 rounded-lg mb-1 transition-all ${isActive?'bg-cyan-500/15 text-cyan-400 font-semibold':'text-gray-400 hover:text-white'}`}><Icon size={18}/><span className="text-sm">{label}</span></NavLink>)}<button onClick={()=>{setMenuOpen(false);signOut()}} className="w-full flex items-center gap-3 px-4 py-3 rounded-lg mt-2 pt-3 border-t border-[#30363d] text-gray-500 hover:text-red-400"><LogOut size={18}/><span className="text-sm">Cerrar sesión</span></button></nav></div>}
-    <aside className={`hidden md:flex flex-col shrink-0 border-r border-[#30363d] bg-[#010409] transition-all duration-200 ${collapsed?'w-16':'w-52'}`}><div className={`flex items-center gap-2 py-4 border-b border-[#30363d] ${collapsed?'justify-center px-2':'px-4'}`}><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center shrink-0 shadow-lg shadow-cyan-500/20"><Smartphone size={16} className="text-black"/></div>{!collapsed&&<div className="leading-tight min-w-0"><p className="font-display font-bold text-sm text-white tracking-wide truncate">LUKATCELL</p><p className="text-[10px] text-cyan-500 uppercase tracking-widest">Punto de venta</p></div>}</div>{!collapsed&&<div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge/></div>}<nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">{navItems.map(({to,label,icon:Icon})=><NavLink key={to} to={to} end={to==='/'} title={collapsed?label:undefined} className={({isActive})=>`flex items-center gap-3 py-2.5 mx-2 rounded-lg mb-0.5 transition-all ${collapsed?'justify-center px-0':'px-4'} ${isActive?'bg-cyan-500/15 text-cyan-400 font-semibold border border-cyan-500/30':'text-gray-500 hover:bg-[#161b22] hover:text-gray-300 border border-transparent'}`}><Icon size={18}/>{!collapsed&&<span className="text-sm">{label}</span>}</NavLink>)}</nav><div className="border-t border-[#30363d] p-2">{!collapsed&&staff&&<div className="px-2 py-2 mb-1"><p className="text-xs font-semibold text-white truncate">{staff.nombre}</p><p className="text-[10px] text-gray-500 capitalize">{staff.puesto||staff.rol}</p></div>}<button onClick={()=>signOut()} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all ${collapsed?'justify-center px-0':'px-2'}`}><LogOut size={16}/>{!collapsed&&<span className="text-xs">Cerrar sesión</span>}</button><button onClick={()=>setCollapsed(!collapsed)} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white hover:bg-[#161b22] transition-all mt-0.5 ${collapsed?'justify-center px-0':'px-2'}`}>{collapsed?<ChevronsRight size={16}/>:<ChevronsLeft size={16}/>} {!collapsed&&<span className="text-xs">Colapsar</span>}</button></div></aside>
-    <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden mobile-header-pad flex flex-col">{!online&&<div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2 flex items-center gap-2 shrink-0"><WifiOff size={13}/> ● OFFLINE — las ventas se guardarán y sincronizarán al reconectar{pendientes>0&&<span className="ml-1">({pendientes} pendientes)</span>}</div>}{online&&pendientes>0&&<div className="bg-cyan-500/15 border-b border-cyan-500/30 text-cyan-400 text-xs font-semibold px-4 py-2 shrink-0">● ONLINE — sincronizando {pendientes} venta(s)...</div>}{online&&pendientes===0&&fallidas>0&&<div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 shrink-0">{fallidas} venta(s) no se pudieron sincronizar — reintento automático</div>}{online&&agotadas>0&&<div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex items-center justify-between gap-2 shrink-0"><span>{agotadas} venta(s) requieren atención</span><button onClick={reintentarAgotadas} disabled={reintentandoManual} className="underline">{reintentandoManual?'Reintentando...':'Reintentar ahora'}</button></div>}<div className="flex-1 min-w-0 min-h-0"><Outlet/></div></main>
+    <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 pb-3" style={{paddingTop:'calc(0.75rem + env(safe-area-inset-top))'}}><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center"><Smartphone size={14} className="text-black"/></div><div><span className="font-display font-bold text-sm text-white block leading-none">LUKATCELL</span><EstadoBadge compact/></div></div><div className="flex items-center gap-3">{!online&&<WifiOff size={16} className="text-orange-400"/>}<button onClick={()=>setMenuOpen(!menuOpen)} className="text-gray-400">{menuOpen?<X size={22}/>:<Menu size={22}/>}</button></div></div>
+    {menuOpen&&<div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={()=>setMenuOpen(false)}><nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>{links(true)}<button onClick={()=>{setMenuOpen(false);signOut()}} className="w-full flex items-center gap-3 px-4 py-3 mt-2 border-t border-[#30363d] text-gray-500 hover:text-red-400"><LogOut size={18}/>Cerrar sesión</button></nav></div>}
+    <aside className={`hidden md:flex flex-col shrink-0 border-r border-[#30363d] bg-[#010409] transition-all ${collapsed?'w-16':'w-52'}`}><div className={`flex items-center gap-2 py-4 border-b border-[#30363d] ${collapsed?'justify-center px-2':'px-4'}`}><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center"><Smartphone size={16} className="text-black"/></div>{!collapsed&&<div><p className="font-display font-bold text-sm text-white">LUKATCELL</p><p className="text-[10px] text-cyan-500 uppercase tracking-widest">Punto de venta</p></div>}</div>{!collapsed&&<div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge/></div>}<nav className="flex-1 py-3 overflow-y-auto">{links()}</nav><div className="border-t border-[#30363d] p-2">{!collapsed&&staff&&<div className="px-2 py-2"><p className="text-xs font-semibold text-white truncate">{staff.nombre}</p><p className="text-[10px] text-gray-500 capitalize">{staff.puesto||staff.rol}</p></div>}<button onClick={signOut} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 ${collapsed?'justify-center':'px-2'}`}><LogOut size={16}/>{!collapsed&&<span className="text-xs">Cerrar sesión</span>}</button><button onClick={()=>setCollapsed(!collapsed)} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white ${collapsed?'justify-center':'px-2'}`}>{collapsed?<ChevronsRight size={16}/>:<ChevronsLeft size={16}/>} {!collapsed&&<span className="text-xs">Colapsar</span>}</button></div></aside>
+    <main className="flex-1 min-w-0 overflow-y-auto mobile-header-pad flex flex-col">{!online&&<div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2"><WifiOff size={13} className="inline mr-2"/>OFFLINE — ventas guardadas para sincronización {pendientes>0&&`(${pendientes})`}</div>}{online&&pendientes>0&&<div className="bg-cyan-500/15 border-b border-cyan-500/30 text-cyan-400 text-xs font-semibold px-4 py-2">Sincronizando {pendientes} venta(s)...</div>}{online&&fallidas>0&&pendientes===0&&<div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2">{fallidas} venta(s) con error de sincronización</div>}{online&&agotadas>0&&<div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex justify-between"><span>{agotadas} venta(s) requieren atención</span><button onClick={reintentar} disabled={reintentandoManual} className="underline">{reintentandoManual?'Reintentando...':'Reintentar'}</button></div>}<div className="flex-1 min-w-0 min-h-0"><Outlet/></div></main>
   </div>
 }

@@ -19,6 +19,9 @@ import Notificaciones from './pages/Notificaciones'
 import Personal from './pages/Personal'
 import PermisosPersonal from './pages/PermisosPersonal'
 import CambiosTurno from './pages/CambiosTurno'
+import MisSolicitudes from './pages/MisSolicitudes'
+import SolicitudesPersonalAdmin from './pages/SolicitudesPersonalAdmin'
+import WhatsAppAdmin from './pages/WhatsAppAdmin'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
 import Anulaciones from './pages/Anulaciones'
@@ -59,6 +62,7 @@ export default function App() {
     <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
       <Route index element={<VentaRoute />} />
       <Route path="jornada" element={<MiJornada />} />
+      <Route path="mis-solicitudes" element={<MisSolicitudes />} />
       <Route path="seguridad" element={<SeguridadMFA />} />
       <Route path="notificaciones" element={<Notificaciones />} />
       <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
@@ -73,6 +77,8 @@ export default function App() {
       <Route path="conteo-inventario" element={<InventoryOpsRoute><ConteoInventario /></InventoryOpsRoute>} />
       <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
       <Route path="crm" element={<AdminRoute><CRM /></AdminRoute>} />
+      <Route path="whatsapp" element={<AdminRoute><WhatsAppAdmin /></AdminRoute>} />
+      <Route path="solicitudes-personal" element={<AdminRoute><SolicitudesPersonalAdmin /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="reportes-avanzados" element={<AdminRoute><ReportesAvanzados /></AdminRoute>} />
       <Route path="promociones" element={<AdminRoute><Promociones /></AdminRoute>} />

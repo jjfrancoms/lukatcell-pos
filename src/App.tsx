@@ -19,6 +19,8 @@ import DashboardAdmin from './pages/DashboardAdmin'
 import Anulaciones from './pages/Anulaciones'
 import Devoluciones from './pages/Devoluciones'
 import NotasCredito from './pages/NotasCredito'
+import Autorizaciones from './pages/Autorizaciones'
+import CierreDiario from './pages/CierreDiario'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -43,11 +45,13 @@ export default function App() {
       <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
       <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
+      <Route path="autorizaciones" element={<Autorizaciones />} />
       <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />
       <Route path="devoluciones" element={<AdminRoute><Devoluciones /></AdminRoute>} />
       <Route path="notas-credito" element={<AdminRoute><NotasCredito /></AdminRoute>} />
+      <Route path="cierre-diario" element={<AdminRoute><CierreDiario /></AdminRoute>} />
       <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
       <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
       <Route path="cambios-turno" element={<AdminRoute><CambiosTurno /></AdminRoute>} />

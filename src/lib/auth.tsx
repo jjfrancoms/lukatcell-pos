@@ -43,8 +43,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await supabase.auth.signOut()
       return
     }
-    setStaff(data)
-    if (data) await Promise.all([cargarCajaActiva(data.id), cargarJornada()])
+    const efectivo = data ? ({ ...data, location_id: data.active_location_id ?? data.location_id } as Staff) : null
+    setStaff(efectivo)
+    if (efectivo) await Promise.all([cargarCajaActiva(efectivo.id), cargarJornada()])
     else { setCashSessionId(null); setJornada(null) }
   }
 

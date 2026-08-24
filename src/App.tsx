@@ -17,18 +17,13 @@ import CambiosTurno from './pages/CambiosTurno'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
 import Anulaciones from './pages/Anulaciones'
+import Devoluciones from './pages/Devoluciones'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, staff, loading } = useAuth()
-  if (loading) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-[#0d1117]">
-        <Loader2 className="animate-spin text-cyan-500" size={28} />
-      </div>
-    )
-  }
+  if (loading) return <div className="h-screen flex items-center justify-center bg-[#0d1117]"><Loader2 className="animate-spin text-cyan-500" size={28} /></div>
   if (!session || !staff) return <Navigate to="/login" replace />
   return <>{children}</>
 }
@@ -59,33 +54,24 @@ function VentaRoute() {
 }
 
 export default function App() {
-  return (
-    <AuthProvider>
-      <ConfigProvider>
-        <ToastProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-                <Route index element={<VentaRoute />} />
-                <Route path="jornada" element={<MiJornada />} />
-                <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
-                <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
-                <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
-                <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
-                <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
-                <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
-                <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />
-                <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
-                <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
-                <Route path="cambios-turno" element={<AdminRoute><CambiosTurno /></AdminRoute>} />
-                <Route path="auditoria" element={<AdminRoute><Auditoria /></AdminRoute>} />
-                <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-        </ToastProvider>
-      </ConfigProvider>
-    </AuthProvider>
-  )
+  return <AuthProvider><ConfigProvider><ToastProvider><BrowserRouter><Routes>
+    <Route path="/login" element={<Login />} />
+    <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route index element={<VentaRoute />} />
+      <Route path="jornada" element={<MiJornada />} />
+      <Route path="caja" element={<JornadaRoute><Caja /></JornadaRoute>} />
+      <Route path="inventario" element={<OperationalRoute><Inventario /></OperationalRoute>} />
+      <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
+      <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
+      <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
+      <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
+      <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />
+      <Route path="devoluciones" element={<AdminRoute><Devoluciones /></AdminRoute>} />
+      <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
+      <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
+      <Route path="cambios-turno" element={<AdminRoute><CambiosTurno /></AdminRoute>} />
+      <Route path="auditoria" element={<AdminRoute><Auditoria /></AdminRoute>} />
+      <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />
+    </Route>
+  </Routes></BrowserRouter></ToastProvider></ConfigProvider></AuthProvider>
 }

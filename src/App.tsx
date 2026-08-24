@@ -30,6 +30,7 @@ import Seriales from './pages/Seriales'
 import ValorizacionInventario from './pages/ValorizacionInventario'
 import CuentasPorPagar from './pages/CuentasPorPagar'
 import ConciliacionPagos from './pages/ConciliacionPagos'
+import ComparadorProveedores from './pages/ComparadorProveedores'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -70,6 +71,7 @@ export default function App() {
       <Route path="conciliacion-pagos" element={<AdminRoute><ConciliacionPagos /></AdminRoute>} />
       <Route path="cuentas-por-pagar" element={<AdminRoute><CuentasPorPagar /></AdminRoute>} />
       <Route path="valorizacion-inventario" element={<AdminRoute><ValorizacionInventario /></AdminRoute>} />
+      <Route path="comparador-proveedores" element={<AdminRoute><ComparadorProveedores /></AdminRoute>} />
       <Route path="proveedores" element={<AdminRoute><Proveedores /></AdminRoute>} />
       <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
       <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />

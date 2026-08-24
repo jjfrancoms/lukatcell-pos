@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FileText, RefreshCw, Plus, WalletCards } from 'lucide-react'
+import { RefreshCw, Plus, WalletCards } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
 

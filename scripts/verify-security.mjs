@@ -21,6 +21,7 @@ const compras = read('src/pages/Compras.tsx')
 const transferencias = read('src/pages/Transferencias.tsx')
 const conteo = read('src/pages/ConteoInventario.tsx')
 const seriales = read('src/pages/Seriales.tsx')
+const taller = read('src/pages/Taller.tsx')
 const app = read('src/App.tsx')
 const layout = read('src/components/Layout.tsx')
 const dashboard = read('src/pages/DashboardAdmin.tsx')
@@ -45,14 +46,16 @@ for (const [path, component] of [
   ['dashboard','DashboardAdmin'],['permisos','PermisosPersonal'],['cambios-turno','CambiosTurno'],['anulaciones','Anulaciones'],['devoluciones','Devoluciones'],['notas-credito','NotasCredito'],['cierre-diario','CierreDiario'],['proveedores','Proveedores'],['auditoria','Auditoria']
 ]) assert(app.includes(`path="${path}" element={<AdminRoute><${component} /></AdminRoute>}`), `${path} protegido por AdminRoute`)
 assert(app.includes('path="autorizaciones" element={<Autorizaciones />}'), 'Autorizaciones disponible a personal autenticado')
-for (const [path, component] of [['compras','Compras'],['transferencias','Transferencias'],['conteo-inventario','ConteoInventario'],['seriales','Seriales']]) {
+for (const [path, component] of [['compras','Compras'],['transferencias','Transferencias'],['conteo-inventario','ConteoInventario'],['taller','Taller']]) {
   assert(app.includes(`path="${path}" element={<InventoryOpsRoute><${component} /></InventoryOpsRoute>}`), `${path} protegido por InventoryOpsRoute`)
 }
+assert(app.includes('path="seriales" element={<OperationalRoute><Seriales /></OperationalRoute>}'), 'Seriales disponible a personal operativo para reserva de venta')
 
 assert(layout.includes("to:'/compras'"), 'Compras en navegación de inventario avanzado')
 assert(layout.includes("to:'/transferencias'"), 'Transferencias en navegación de inventario avanzado')
 assert(layout.includes("to:'/conteo-inventario'"), 'Conteo físico en navegación de inventario avanzado')
-assert(layout.includes("to:'/seriales'"), 'Seriales en navegación de inventario avanzado')
+assert(layout.includes("to: '/seriales'"), 'Seriales en navegación operativa')
+assert(layout.includes("to:'/taller'"), 'Taller en navegación técnica')
 assert(layout.includes("to:'/proveedores'"), 'Proveedores solo en navegación administrativa')
 
 assert(permisos.includes("rpc('registrar_permiso_personal'"), 'Permisos usan RPC')
@@ -98,6 +101,15 @@ assert(seriales.includes("rpc('configurar_control_serial'"), 'Control serial se 
 assert(seriales.includes("rpc('registrar_seriales'"), 'Alta de seriales usa RPC')
 assert(seriales.includes("rpc('reservar_seriales_carrito'"), 'Seriales pueden reservarse para venta')
 assert(!seriales.includes("from('product_serials').insert("), 'UI no inserta IMEI/seriales directamente')
+
+// P3 — taller avanzado
+assert(taller.includes("rpc('actualizar_orden_servicio_tecnica'"), 'Taller actualiza orden mediante RPC técnica')
+assert(taller.includes("rpc('agregar_repuesto_orden'"), 'Taller descuenta repuestos mediante RPC')
+assert(taller.includes("rpc('retirar_repuesto_orden'"), 'Taller devuelve repuestos mediante RPC')
+assert(taller.includes("rpc('registrar_foto_orden'"), 'Taller registra evidencia mediante RPC')
+assert(taller.includes("storage.from('ordenes-servicio').upload"), 'Fotos se suben al bucket privado de órdenes')
+assert(!taller.includes("from('inventory').update("), 'Taller no toca stock directamente')
+assert(!taller.includes("from('orden_servicio_repuestos').insert("), 'Taller no inserta repuestos directamente')
 
 assert(jornada.includes("['permiso', 'vacaciones', 'licencia']"), 'Mi Jornada reconoce permisos')
 assert(dashboard.includes('personal_permisos'), 'Dashboard cuenta permisos')

@@ -23,6 +23,8 @@ import Autorizaciones from './pages/Autorizaciones'
 import CierreDiario from './pages/CierreDiario'
 import Proveedores from './pages/Proveedores'
 import Compras from './pages/Compras'
+import Transferencias from './pages/Transferencias'
+import ConteoInventario from './pages/ConteoInventario'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -35,7 +37,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) { const { isAdmin } = useAuth(); return isAdmin ? <>{children}</> : <Navigate to="/" replace /> }
 function JornadaRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva } = useAuth(); return jornadaActiva ? <>{children}</> : <Navigate to="/jornada" replace /> }
 function OperationalRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva, isAdmin } = useAuth(); return (isAdmin || jornadaActiva) ? <>{children}</> : <Navigate to="/jornada" replace /> }
-function ComprasRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva, isAdmin, staff } = useAuth(); const habilitado=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||''); if(!habilitado) return <Navigate to="/" replace />; if(!isAdmin&&!jornadaActiva) return <Navigate to="/jornada" replace />; return <>{children}</> }
+function InventoryOpsRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva,isAdmin,staff }=useAuth(); const habilitado=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||''); if(!habilitado)return <Navigate to="/" replace/>; if(!isAdmin&&!jornadaActiva)return <Navigate to="/jornada" replace/>; return <>{children}</> }
 function VentaRoute() { const { jornadaActiva, cashSessionId } = useAuth(); if (!jornadaActiva) return <Navigate to="/jornada" replace />; if (!cashSessionId) return <Navigate to="/caja" replace />; return <Venta /> }
 
 export default function App() {
@@ -49,7 +51,9 @@ export default function App() {
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
       <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
       <Route path="autorizaciones" element={<Autorizaciones />} />
-      <Route path="compras" element={<ComprasRoute><Compras /></ComprasRoute>} />
+      <Route path="compras" element={<InventoryOpsRoute><Compras /></InventoryOpsRoute>} />
+      <Route path="transferencias" element={<InventoryOpsRoute><Transferencias /></InventoryOpsRoute>} />
+      <Route path="conteo-inventario" element={<InventoryOpsRoute><ConteoInventario /></InventoryOpsRoute>} />
       <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />

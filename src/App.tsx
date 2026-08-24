@@ -24,6 +24,7 @@ import SolicitudesPersonalAdmin from './pages/SolicitudesPersonalAdmin'
 import WhatsAppAdmin from './pages/WhatsAppAdmin'
 import OfflineAdmin from './pages/OfflineAdmin'
 import HardwareAdmin from './pages/HardwareAdmin'
+import EstadoSistema from './pages/EstadoSistema'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
 import Anulaciones from './pages/Anulaciones'
@@ -83,6 +84,7 @@ export default function App() {
       <Route path="solicitudes-personal" element={<AdminRoute><SolicitudesPersonalAdmin /></AdminRoute>} />
       <Route path="offline" element={<AdminRoute><OfflineAdmin /></AdminRoute>} />
       <Route path="hardware" element={<AdminRoute><HardwareAdmin /></AdminRoute>} />
+      <Route path="estado-sistema" element={<AdminRoute><EstadoSistema /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="reportes-avanzados" element={<AdminRoute><ReportesAvanzados /></AdminRoute>} />
       <Route path="promociones" element={<AdminRoute><Promociones /></AdminRoute>} />

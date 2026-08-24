@@ -22,6 +22,8 @@ import CambiosTurno from './pages/CambiosTurno'
 import MisSolicitudes from './pages/MisSolicitudes'
 import SolicitudesPersonalAdmin from './pages/SolicitudesPersonalAdmin'
 import WhatsAppAdmin from './pages/WhatsAppAdmin'
+import OfflineAdmin from './pages/OfflineAdmin'
+import HardwareAdmin from './pages/HardwareAdmin'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
 import Anulaciones from './pages/Anulaciones'
@@ -79,6 +81,8 @@ export default function App() {
       <Route path="crm" element={<AdminRoute><CRM /></AdminRoute>} />
       <Route path="whatsapp" element={<AdminRoute><WhatsAppAdmin /></AdminRoute>} />
       <Route path="solicitudes-personal" element={<AdminRoute><SolicitudesPersonalAdmin /></AdminRoute>} />
+      <Route path="offline" element={<AdminRoute><OfflineAdmin /></AdminRoute>} />
+      <Route path="hardware" element={<AdminRoute><HardwareAdmin /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="reportes-avanzados" element={<AdminRoute><ReportesAvanzados /></AdminRoute>} />
       <Route path="promociones" element={<AdminRoute><Promociones /></AdminRoute>} />

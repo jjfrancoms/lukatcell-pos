@@ -46,7 +46,10 @@ interface AsistenciaMes {
   minutos_tarde: number
   ausencias: number
   justificados: number
+  horas_programadas_mes: number
+  horas_programadas_hasta_hoy: number
   horas_trabajadas: number
+  jornadas_incompletas: number
 }
 
 interface Justificacion {
@@ -131,8 +134,10 @@ export default function DashboardAdmin() {
     minutos: acc.minutos + Number(r.minutos_tarde || 0),
     ausencias: acc.ausencias + Number(r.ausencias || 0),
     justificados: acc.justificados + Number(r.justificados || 0),
+    horasProgramadas: acc.horasProgramadas + Number(r.horas_programadas_hasta_hoy || 0),
     horas: acc.horas + Number(r.horas_trabajadas || 0),
-  }), { tardanzas: 0, minutos: 0, ausencias: 0, justificados: 0, horas: 0 }), [asistencia])
+    incompletas: acc.incompletas + Number(r.jornadas_incompletas || 0),
+  }), { tardanzas: 0, minutos: 0, ausencias: 0, justificados: 0, horasProgramadas: 0, horas: 0, incompletas: 0 }), [asistencia])
 
   const cards = dashboard ? [
     { label: 'Ventas de hoy', value: soles(dashboard.ventas_total), sub: `${dashboard.ventas_cantidad} venta${dashboard.ventas_cantidad === 1 ? '' : 's'}`, icon: ShoppingCart },
@@ -205,19 +210,21 @@ export default function DashboardAdmin() {
                 <Mini label="Min. tarde" value={resumenAsistencia.minutos} />
                 <Mini label="Ausencias" value={resumenAsistencia.ausencias} />
                 <Mini label="Justificados" value={resumenAsistencia.justificados} />
-                <Mini label="Horas trabajadas" value={resumenAsistencia.horas.toFixed(1)} />
+                <Mini label="H. programadas" value={resumenAsistencia.horasProgramadas.toFixed(1)} />
+                <Mini label="H. registradas" value={resumenAsistencia.horas.toFixed(1)} />
+                <Mini label="Sin salida" value={resumenAsistencia.incompletas} />
               </div>
-              <p className="text-[10px] text-gray-600 mt-3">Las ausencias solo se calculan desde la fecha efectiva de cada programación; una justificación aprobada deja de contarse como ausencia.</p>
+              <p className="text-[10px] text-gray-600 mt-3">Las horas programadas son una referencia operativa del horario asignado; no representan por sí solas horas extra, descuentos ni reglas de pago.</p>
             </section>
           </div>
 
           <section className="rounded-2xl border border-[#30363d] bg-[#161b22] overflow-hidden mb-5">
             <div className="px-4 py-3 border-b border-[#30363d]"><h2 className="text-sm font-bold text-white">Detalle mensual por persona</h2><p className="text-[11px] text-gray-500">Programación, marcas, tardanzas, faltas y horas registradas.</p></div>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[920px]">
-                <thead className="bg-[#0d1117] text-gray-500"><tr><Th>Personal</Th><Th>Programados</Th><Th>Marcados</Th><Th>Tardanzas</Th><Th>Min. tarde</Th><Th>Ausencias</Th><Th>Justificados</Th><Th>Horas</Th></tr></thead>
+              <table className="w-full text-xs min-w-[1160px]">
+                <thead className="bg-[#0d1117] text-gray-500"><tr><Th>Personal</Th><Th>Programados</Th><Th>Marcados</Th><Th>Tardanzas</Th><Th>Min. tarde</Th><Th>Ausencias</Th><Th>Justificados</Th><Th>H. prog.</Th><Th>H. registradas</Th><Th>Sin salida</Th></tr></thead>
                 <tbody className="divide-y divide-[#21262d]">
-                  {asistencia.map((r) => <tr key={r.staff_id} className="text-gray-300"><td className="px-4 py-3"><p className="font-semibold text-white">{r.nombre}</p><p className="text-[10px] text-gray-600">@{r.username} · {r.puesto || 'sin puesto'}</p></td><Td>{r.dias_programados_hasta_hoy}/{r.dias_programados_mes}</Td><Td>{r.dias_con_entrada}</Td><Td>{r.tardanzas}</Td><Td>{r.minutos_tarde}</Td><Td>{r.ausencias}</Td><Td>{r.justificados}</Td><Td>{Number(r.horas_trabajadas || 0).toFixed(2)} h</Td></tr>)}
+                  {asistencia.map((r) => <tr key={r.staff_id} className="text-gray-300"><td className="px-4 py-3"><p className="font-semibold text-white">{r.nombre}</p><p className="text-[10px] text-gray-600">@{r.username} · {r.puesto || 'sin puesto'}</p></td><Td>{r.dias_programados_hasta_hoy}/{r.dias_programados_mes}</Td><Td>{r.dias_con_entrada}</Td><Td>{r.tardanzas}</Td><Td>{r.minutos_tarde}</Td><Td>{r.ausencias}</Td><Td>{r.justificados}</Td><Td>{Number(r.horas_programadas_hasta_hoy || 0).toFixed(2)} / {Number(r.horas_programadas_mes || 0).toFixed(2)} h</Td><Td>{Number(r.horas_trabajadas || 0).toFixed(2)} h</Td><Td>{r.jornadas_incompletas}</Td></tr>)}
                 </tbody>
               </table>
             </div>

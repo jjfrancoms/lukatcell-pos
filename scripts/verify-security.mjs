@@ -79,7 +79,7 @@ assert(cierre.includes("rpc('cerrar_dia'"), 'Cierre diario se ejecuta por RPC')
 assert(!cierre.includes("from('cierres_diarios').insert("), 'UI no crea cierre directamente')
 
 // P2 — abastecimiento e inventario avanzado
-assert(proveedores.includes("rpc('guardar_proveedor'"), 'Proveedores se guardan por RPC administrativa')
+assert(proveedores.includes("rpc('crear_proveedor'"), 'Proveedores se guardan por RPC administrativa')
 assert(!proveedores.includes("from('proveedores').insert("), 'Proveedores no se insertan directamente desde UI')
 assert(compras.includes("rpc('crear_orden_compra'"), 'Órdenes de compra usan RPC')
 assert(compras.includes("rpc('recibir_orden_compra'"), 'Recepción de compras usa RPC transaccional')
@@ -91,7 +91,7 @@ assert(transferencias.includes("rpc('recibir_transferencia_stock'"), 'Recepción
 assert(!transferencias.includes("from('inventory').update("), 'Transferencias no modifican inventario directamente')
 assert(transferencias.includes("rpc('seriales_disponibles'"), 'Transferencias seleccionan seriales disponibles')
 assert(conteo.includes("rpc('iniciar_inventario_fisico'"), 'Conteo físico se inicia por RPC')
-assert(conteo.includes("rpc('registrar_conteo_inventario'"), 'Conteo físico registra cantidades por RPC')
+assert(conteo.includes("rpc('registrar_conteo_fisico'"), 'Conteo físico registra cantidades por RPC')
 assert(conteo.includes("rpc('cerrar_inventario_fisico'"), 'Conteo físico aplica diferencias solo al cierre')
 assert(!conteo.includes("from('inventory').update("), 'Conteo físico no altera inventario desde UI')
 assert(seriales.includes("rpc('configurar_control_serial'"), 'Control serial se configura por RPC')

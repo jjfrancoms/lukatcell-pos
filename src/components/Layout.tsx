@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
@@ -34,6 +34,7 @@ export default function Layout() {
         { to: '/reportes', label: 'Reportes', icon: BarChart3 },
         { to: '/anulaciones', label: 'Anulaciones', icon: Ban },
         { to: '/devoluciones', label: 'Devoluciones', icon: RotateCcw },
+        { to: '/notas-credito', label: 'Notas de crédito', icon: FileMinus2 },
         { to: '/personal', label: 'Personal', icon: UserCog },
         { to: '/permisos', label: 'Permisos', icon: CalendarOff },
         { to: '/cambios-turno', label: 'Cambios de turno', icon: CalendarClock },

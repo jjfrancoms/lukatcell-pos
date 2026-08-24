@@ -21,6 +21,8 @@ import Devoluciones from './pages/Devoluciones'
 import NotasCredito from './pages/NotasCredito'
 import Autorizaciones from './pages/Autorizaciones'
 import CierreDiario from './pages/CierreDiario'
+import Proveedores from './pages/Proveedores'
+import Compras from './pages/Compras'
 import Auditoria from './pages/Auditoria'
 import Configuracion from './pages/Configuracion'
 
@@ -33,6 +35,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) { const { isAdmin } = useAuth(); return isAdmin ? <>{children}</> : <Navigate to="/" replace /> }
 function JornadaRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva } = useAuth(); return jornadaActiva ? <>{children}</> : <Navigate to="/jornada" replace /> }
 function OperationalRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva, isAdmin } = useAuth(); return (isAdmin || jornadaActiva) ? <>{children}</> : <Navigate to="/jornada" replace /> }
+function ComprasRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva, isAdmin, staff } = useAuth(); const habilitado=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||''); if(!habilitado) return <Navigate to="/" replace />; if(!isAdmin&&!jornadaActiva) return <Navigate to="/jornada" replace />; return <>{children}</> }
 function VentaRoute() { const { jornadaActiva, cashSessionId } = useAuth(); if (!jornadaActiva) return <Navigate to="/jornada" replace />; if (!cashSessionId) return <Navigate to="/caja" replace />; return <Venta /> }
 
 export default function App() {
@@ -46,12 +49,14 @@ export default function App() {
       <Route path="ordenes" element={<OperationalRoute><OrdenesServicio /></OperationalRoute>} />
       <Route path="clientes" element={<OperationalRoute><Clientes /></OperationalRoute>} />
       <Route path="autorizaciones" element={<Autorizaciones />} />
+      <Route path="compras" element={<ComprasRoute><Compras /></ComprasRoute>} />
       <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
       <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
       <Route path="anulaciones" element={<AdminRoute><Anulaciones /></AdminRoute>} />
       <Route path="devoluciones" element={<AdminRoute><Devoluciones /></AdminRoute>} />
       <Route path="notas-credito" element={<AdminRoute><NotasCredito /></AdminRoute>} />
       <Route path="cierre-diario" element={<AdminRoute><CierreDiario /></AdminRoute>} />
+      <Route path="proveedores" element={<AdminRoute><Proveedores /></AdminRoute>} />
       <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
       <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
       <Route path="cambios-turno" element={<AdminRoute><CambiosTurno /></AdminRoute>} />

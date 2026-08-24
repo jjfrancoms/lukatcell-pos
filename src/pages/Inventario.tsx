@@ -14,14 +14,14 @@ interface FilaInventario {
   variant_id: string; cantidad: number; stock_minimo: number; location_id: string
   variant: {
     id: string; color: string | null; codigo_barras: string | null; modelo_celular_id: string | null; precio_override: number | null
-    product: { id: string; nombre: string; sku: string | null; imagen_url: string | null; costo: number; precio_base: number; categoria_id: string | null; activo: boolean }
+    product: { id: string; nombre: string; sku: string | null; imagen_url: string | null; costo?: number; precio_base: number; categoria_id: string | null; activo: boolean }
     modelo: { id: string; marca: string; modelo: string } | null
   }
 }
 
 interface Movimiento { id: string; cantidad_delta: number; motivo: string; created_at: string }
 
-const SELECT_INVENTARIO = 'variant_id, cantidad, stock_minimo, location_id, variant:product_variants(id, color, codigo_barras, modelo_celular_id, precio_override, product:products(id, nombre, sku, imagen_url, costo, precio_base, categoria_id, activo), modelo:modelos_celular(id, marca, modelo))'
+const SELECT_INVENTARIO = 'variant_id, cantidad, stock_minimo, location_id, variant:product_variants(id, color, codigo_barras, modelo_celular_id, precio_override, product:products(id, nombre, sku, imagen_url, precio_base, categoria_id, activo), modelo:modelos_celular(id, marca, modelo))'
 
 function generarCodigoInterno() {
   return '2' + Date.now().toString().slice(-9) + Math.floor(Math.random() * 10)
@@ -50,13 +50,18 @@ export default function Inventario() {
 
   const cargar = async () => {
     const { data } = await supabase.from('inventory').select(SELECT_INVENTARIO).order('cantidad', { ascending: true })
-    setFilas((data as unknown as FilaInventario[]) || [])
+    const base = ((data as unknown as FilaInventario[]) || [])
+    if (!isAdmin) { setFilas(base); return }
+    const { data: costos, error: costoError } = await supabase.rpc('costos_productos_admin')
+    if (costoError) { showToast('No se pudieron cargar los costos', 'error'); setFilas(base); return }
+    const porProducto = new Map(((costos || []) as { product_id: string; costo: number }[]).map((c) => [c.product_id, Number(c.costo || 0)]))
+    setFilas(base.map((f) => ({ ...f, variant: { ...f.variant, product: { ...f.variant.product, costo: porProducto.get(f.variant.product.id) } } })))
   }
 
   const guardarCosto = async (productId: string, valor: string) => {
     const costo = Number(valor)
     if (Number.isNaN(costo) || costo < 0) return
-    const { error } = await supabase.from('products').update({ costo }).eq('id', productId)
+    const { error } = await supabase.rpc('actualizar_costo_producto_admin', { p_product_id: productId, p_costo: costo, p_origen: 'inventario_ui' })
     if (error) { showToast('No se pudo guardar el costo', 'error'); return }
     setFilas((fs) => fs.map((f) => f.variant?.product?.id === productId ? { ...f, variant: { ...f.variant, product: { ...f.variant.product, costo } } } : f))
     showToast('Costo actualizado', 'success')

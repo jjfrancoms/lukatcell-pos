@@ -22,7 +22,7 @@ const catIcons: Record<string, any> = {
 }
 
 export default function Venta() {
-  const { staff, cashSessionId } = useAuth()
+  const { staff, cashSessionId, isAdmin } = useAuth()
   const { config } = useConfig()
   const { online } = useOnlineStatus()
   const { showToast } = useToast()
@@ -38,6 +38,11 @@ export default function Venta() {
   const [descItem, setDescItem] = useState<string | null>(null)
   const [descValor, setDescValor] = useState('')
   const [descTipo, setDescTipo] = useState<'pct' | 'fijo'>('pct')
+  const [descuentosManuales, setDescuentosManuales] = useState<Record<string, number>>({})
+  const [cupon, setCupon] = useState('')
+  const [promoAplicada, setPromoAplicada] = useState<string | null>(null)
+  const [limiteDescuento, setLimiteDescuento] = useState(isAdmin ? 100 : Number(localStorage.getItem('lukatcell_descuento_max_pct') || 0))
+  const [preparandoCobro, setPreparandoCobro] = useState(false)
   const [loading, setLoading] = useState(true)
   const [recuperarDisponible, setRecuperarDisponible] = useState<{ cart: CartItem[]; savedAt: string } | null>(null)
   const [recibo, setRecibo] = useState<{ saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null; cajeroNombre: string | null } | null>(null)
@@ -70,6 +75,17 @@ export default function Venta() {
     sincronizarCatalogoIncremental()
   }, [online])
 
+  useEffect(() => {
+    if (isAdmin) { setLimiteDescuento(100); return }
+    if (!online) return
+    supabase.rpc('limite_descuento_actual').then(({ data, error }) => {
+      if (error) return
+      const limite = Number(data || 0)
+      setLimiteDescuento(limite)
+      localStorage.setItem('lukatcell_descuento_max_pct', String(limite))
+    })
+  }, [isAdmin, online])
+
   // Recuperación de carrito: si el navegador se cerró a mitad de una venta, se ofrece recuperarlo (nunca se auto-convierte en venta)
   useEffect(() => {
     if (!staff?.id) return
@@ -87,7 +103,7 @@ export default function Venta() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'F4') { e.preventDefault(); if (cart.length) setShowPago(true) }
+      if (e.key === 'F4') { e.preventDefault(); if (cart.length) document.getElementById('btn-cobrar')?.click() }
       if (e.key === 'Escape') { setShowPago(false); setDescItem(null) }
       if (e.key === 'F2') { e.preventDefault(); searchRef.current?.focus() }
     }
@@ -168,21 +184,60 @@ export default function Venta() {
       label: 'Deshacer', onClick: () => setCart((p) => p.some((i) => i.variant.id === vid) ? p : [...p, item]),
     })
   }
-  const applyDisc = (vid: string) => {
+  const applyDisc = async (vid: string) => {
     const val = Number(descValor) || 0; if (val <= 0) { setDescItem(null); return }
-    setCart((p) => p.map((i) => { if (i.variant.id !== vid) return i; return { ...i, descuento: calcularDescuentoLinea(i.precio_unitario, val, descTipo) } }))
-    setDescItem(null); setDescValor('')
+    const item = cart.find((i) => i.variant.id === vid); if (!item) return
+    const descuento = calcularDescuentoLinea(item.precio_unitario, val, descTipo)
+    const pct = item.precio_unitario > 0 ? descuento / item.precio_unitario * 100 : 0
+    if (!isAdmin && pct > limiteDescuento + 0.0001) {
+      const { error } = await supabase.rpc('solicitar_autorizacion', {
+        p_tipo: 'descuento', p_motivo: `Descuento solicitado ${pct.toFixed(2)}%`, p_recurso_tipo: 'variant', p_recurso_id: vid,
+        p_payload: { variant_id: vid, porcentaje: pct, descuento_unitario: descuento, precio_unitario: item.precio_unitario }
+      })
+      showToast(error ? 'No se pudo solicitar autorización' : `Supera tu límite (${limiteDescuento.toFixed(2)}%). Autorización solicitada.`, error ? 'error' : 'info')
+      setDescItem(null); setDescValor(''); return
+    }
+    setDescuentosManuales((m) => ({ ...m, [vid]: descuento }))
+    setCart((p) => p.map((i) => i.variant.id === vid ? { ...i, descuento } : i))
+    setPromoAplicada(null); setDescItem(null); setDescValor('')
   }
 
   const recuperarCarrito = () => {
     if (!recuperarDisponible) return
     setCart(recuperarDisponible.cart)
+    setDescuentosManuales(Object.fromEntries(recuperarDisponible.cart.map((i) => [i.variant.id, Number(i.descuento || 0)])))
     setRecuperarDisponible(null)
     showToast('Venta recuperada', 'success')
   }
   const descartarRecuperacion = () => {
     setRecuperarDisponible(null)
     if (staff?.id) borrarCarritoActivo(staff.id)
+  }
+
+  const prepararCobro = async () => {
+    if (!cart.length) return
+    if (!online) {
+      if (cupon.trim()) { showToast('Los cupones requieren conexión', 'error'); return }
+      setShowPago(true); setShowCart(false); return
+    }
+    setPreparandoCobro(true)
+    const payload = cart.map((i) => ({ variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }))
+    const { data, error } = await supabase.rpc('resolver_promociones_carrito', { p_items: payload, p_codigo_cupon: cupon.trim() || null })
+    if (error) { setPreparandoCobro(false); showToast('No se pudieron validar promociones', 'error'); return }
+    const promos = (data || []) as { variant_id: string; descuento_promocion_unitario: number; promocion_nombre: string; acumulable: boolean }[]
+    if (cupon.trim() && promos.length === 0) { setPreparandoCobro(false); showToast('Cupón inválido, vencido o no aplicable al carrito', 'error'); return }
+    const porVariant = new Map(promos.map((r) => [r.variant_id, r]))
+    setCart((prev) => prev.map((i) => {
+      const promo = porVariant.get(i.variant.id)
+      const manual = Number(descuentosManuales[i.variant.id] || 0)
+      if (!promo) return { ...i, descuento: manual }
+      const pd = Number(promo.descuento_promocion_unitario || 0)
+      const descuento = promo.acumulable ? Math.min(i.precio_unitario, manual + pd) : Math.max(manual, pd)
+      return { ...i, descuento }
+    }))
+    setPromoAplicada(promos[0]?.promocion_nombre || null)
+    if (promos.length) showToast(`Promoción aplicada: ${promos[0].promocion_nombre}`, 'success')
+    setPreparandoCobro(false); setShowPago(true); setShowCart(false)
   }
 
   const { subtotal, totalDescuento: totalDesc, impuesto, total } = calcularTotalesCarrito(cart, IGV)
@@ -323,13 +378,15 @@ export default function Venta() {
             })}
           </div>
           <div className="p-3 border-t border-[#30363d] space-y-1" style={{ paddingBottom: 'max(0.75rem, calc(env(safe-area-inset-bottom) + 0.5rem))' }}>
+            <div className="flex gap-2 mb-2"><input value={cupon} onChange={(e) => { setCupon(e.target.value.toUpperCase()); setPromoAplicada(null) }} placeholder="Cupón (opcional)" className="flex-1 bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white uppercase placeholder:normal-case placeholder-gray-600" /></div>
+            {promoAplicada && <div className="text-[11px] text-green-400 mb-1">Promoción: {promoAplicada}</div>}
             {totalDesc > 0 && <div className="flex justify-between text-sm"><span className="text-orange-400">Descuento</span><span className="text-orange-400 font-semibold">-S/ {totalDesc.toFixed(2)}</span></div>}
             <div className="flex justify-between text-sm"><span className="text-gray-500">Subtotal</span><span className="text-gray-300">S/ {subtotal.toFixed(2)}</span></div>
             {config.igv_activo && <div className="flex justify-between text-sm"><span className="text-gray-500">IGV ({config.igv_porcentaje}%)</span><span className="text-gray-300">S/ {impuesto.toFixed(2)}</span></div>}
             <div className="flex justify-between text-lg font-bold pt-2 border-t border-[#30363d]"><span className="text-white">Total</span><span className="text-cyan-400">S/ {total.toFixed(2)}</span></div>
-            <button disabled={cart.length === 0} onClick={() => { setShowPago(true); setShowCart(false) }}
+            <button id="btn-cobrar" disabled={cart.length === 0 || preparandoCobro} onClick={prepararCobro}
               className="w-full mt-2 bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:from-[#21262d] disabled:to-[#21262d] disabled:text-gray-600 text-black font-bold py-3 rounded-xl hover:shadow-lg hover:shadow-cyan-500/30 transition-all text-sm active:scale-[0.98]">
-              Cobrar · S/ {total.toFixed(2)}
+              {preparandoCobro ? 'Validando...' : `Cobrar · S/ ${total.toFixed(2)}`}
             </button>
           </div>
         </div>
@@ -341,11 +398,13 @@ export default function Venta() {
           locationId={staff?.location_id ?? null} cajeroId={staff?.id ?? null} cashSessionId={cashSessionId}
           onClose={() => setShowPago(false)}
           onConfirm={(res) => {
-            setCart([]); setShowPago(false); setShowCart(false)
+            const codigoUsado = cupon.trim()
+            setCart([]); setDescuentosManuales({}); setCupon(''); setPromoAplicada(null); setShowPago(false); setShowCart(false)
             if (staff?.id) borrarCarritoActivo(staff.id)
             if (res) {
               setRecibo({ ...res, cajeroNombre: staff?.nombre ?? null })
               if (res.saleId === 'pendiente-sync') showToast('Venta guardada sin conexión, se sincronizará automáticamente', 'info')
+              else if (codigoUsado && online) supabase.rpc('registrar_uso_cupon', { p_codigo: codigoUsado, p_sale_id: res.saleId }).then(({ error }) => { if (error) showToast('Venta registrada, pero no se pudo contabilizar el uso del cupón', 'error') })
             }
           }} />
       )}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { useOnlineStatus, sincronizarVentasPendientes, contarVentasPendientes } from '../lib/offline'
 
@@ -33,6 +33,7 @@ export default function Layout() {
         ...baseNavItems,
         { to: '/reportes', label: 'Reportes', icon: BarChart3 },
         { to: '/personal', label: 'Personal', icon: UserCog },
+        { to: '/permisos', label: 'Permisos', icon: CalendarOff },
         { to: '/auditoria', label: 'Auditoría', icon: ShieldCheck },
         { to: '/configuracion', label: 'Configuración', icon: Settings },
       ]

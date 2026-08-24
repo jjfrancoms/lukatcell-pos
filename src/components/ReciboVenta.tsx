@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Printer, X, AlertTriangle, FileText, Loader2 } from 'lucide-react'
 import { useConfig } from '../lib/config'
 import { supabase } from '../lib/supabase'
+import { imprimirHtmlHardware } from '../lib/hardware'
 import type { PagoDetalle, ReciboLineaItem, EstadoComprobante } from '../types'
 
 interface Props {
@@ -31,9 +32,6 @@ export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, imp
   const [errorImpresion, setErrorImpresion] = useState(false)
   const [comprobante, setComprobante] = useState<{ estado: EstadoComprobante; enlace_pdf: string | null } | null>(null)
 
-  // La emisión del comprobante es asíncrona (trigger -> Edge Function -> Nubefact),
-  // corre en paralelo a este recibo. Se sondea unos segundos por si termina mientras
-  // el cajero todavía tiene el ticket abierto; si no, queda disponible en Reportes.
   useEffect(() => {
     if (!config.nubefact_activo || numero === null) return
     let cancelado = false
@@ -43,17 +41,21 @@ export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, imp
       if (cancelado) return
       if (data) setComprobante(data)
       intentos++
-      if (!data || (data.estado === 'pendiente' && intentos < MAX_INTENTOS_POLL_COMPROBANTE)) {
-        setTimeout(poll, 2000)
-      }
+      if (!data || (data.estado === 'pendiente' && intentos < MAX_INTENTOS_POLL_COMPROBANTE)) setTimeout(poll, 2000)
     }
     poll()
     return () => { cancelado = true }
   }, [config.nubefact_activo, numero, saleId])
 
-  const imprimir = () => {
+  const imprimir = async () => {
+    setErrorImpresion(false)
     try {
-      setErrorImpresion(false)
+      const area=document.querySelector('.print-area') as HTMLElement|null
+      const paper=config.tamano_papel==='58mm'?'58mm':'80mm'
+      if(area){
+        const ok=await imprimirHtmlHardware(area.outerHTML,paper)
+        if(ok)return
+      }
       window.print()
     } catch {
       // La venta ya está guardada — un fallo de impresión nunca la cancela.
@@ -63,7 +65,7 @@ export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, imp
 
   useEffect(() => {
     if (!autoImprimir) return
-    const t = setTimeout(imprimir, 300)
+    const t = setTimeout(() => { void imprimir() }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoImprimir])
@@ -137,7 +139,7 @@ export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, imp
           )}
           <div className="flex gap-2">
             <button onClick={onClose} className="flex-1 flex items-center justify-center gap-1.5 bg-gray-100 text-gray-700 font-semibold py-2.5 rounded-xl text-sm"><X size={15} /> Cerrar</button>
-            <button onClick={imprimir} className="flex-1 flex items-center justify-center gap-1.5 bg-cyan-500 text-black font-bold py-2.5 rounded-xl text-sm">
+            <button onClick={() => { void imprimir() }} className="flex-1 flex items-center justify-center gap-1.5 bg-cyan-500 text-black font-bold py-2.5 rounded-xl text-sm">
               <Printer size={15} /> {errorImpresion ? 'Reintentar' : 'Imprimir'}
             </button>
           </div>

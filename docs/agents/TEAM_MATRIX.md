@@ -1,4 +1,6 @@
-# TEAM MATRIX — LukatCell POS
+# EQUIPO ELITE — TEAM MATRIX — LukatCell POS
+
+**Equipo Elite** es el nombre oficial del grupo multiagente de LukatCell POS.
 
 ## Capacidad paralela
 
@@ -108,7 +110,7 @@ Para no degradar calidad:
 
 ## Memoria
 
-Los agentes no deben confiar en memoria conversacional únicamente. La verdad durable vive en:
+Los agentes de **Equipo Elite** no deben confiar en memoria conversacional únicamente. La verdad durable vive en:
 - `STATE.md`
 - `BACKLOG.md`
 - `DECISIONS.md`

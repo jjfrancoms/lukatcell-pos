@@ -12,6 +12,7 @@ import Reportes from './pages/Reportes'
 import OrdenesServicio from './pages/OrdenesServicio'
 import Clientes from './pages/Clientes'
 import Personal from './pages/Personal'
+import PermisosPersonal from './pages/PermisosPersonal'
 import MiJornada from './pages/MiJornada'
 import DashboardAdmin from './pages/DashboardAdmin'
 import Auditoria from './pages/Auditoria'
@@ -73,6 +74,7 @@ export default function App() {
                 <Route path="dashboard" element={<AdminRoute><DashboardAdmin /></AdminRoute>} />
                 <Route path="reportes" element={<AdminRoute><Reportes /></AdminRoute>} />
                 <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
+                <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
                 <Route path="auditoria" element={<AdminRoute><Auditoria /></AdminRoute>} />
                 <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />
               </Route>

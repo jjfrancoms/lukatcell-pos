@@ -8,6 +8,7 @@ export interface Product {
   imagen_url: string | null
   favorito: boolean
   costo: number
+  control_serial?: boolean
 }
 
 export interface ModeloCelular {
@@ -33,11 +34,9 @@ export interface CartItem {
   cantidad: number
   precio_unitario: number
   descuento: number
+  serialIds?: string[]
 }
 
-// Forma mínima que necesita ReciboVenta para dibujar una línea del ticket.
-// CartItem (venta en curso) y las filas reconstruidas desde sale_items (reimpresión)
-// son ambas estructuralmente compatibles con este tipo.
 export interface ReciboLineaItem {
   variant: { id: string; product?: { nombre?: string | null } | null }
   cantidad: number
@@ -145,7 +144,6 @@ export interface Cliente {
 }
 
 export type EstadoOrden = 'recibido' | 'diagnosticado' | 'en_reparacion' | 'listo' | 'entregado' | 'cancelado'
-
 export type TamanoPapel = '58mm' | '80mm'
 
 export interface Configuracion {
@@ -179,124 +177,25 @@ export interface PagoDigital {
   updated_at: string
 }
 
-export type TipoComprobante = 'boleta' | 'factura'
-
-export type TipoDocumentoCliente = 'dni' | 'ruc'
-
-export interface DatosComprobante {
-  tipoComprobante: TipoComprobante
-  clienteTipoDoc: TipoDocumentoCliente | null
-  clienteNumDoc: string | null
-  clienteDenominacion: string | null
-  clienteDireccion: string | null
-}
-
-export type EstadoComprobante = 'pendiente' | 'emitido' | 'error'
-
-export interface ComprobanteElectronico {
-  id: string
-  sale_id: string
-  estado: EstadoComprobante
-  tipo_comprobante: TipoComprobante
-  serie: string
-  numero: number
-  enlace_pdf: string | null
-  enlace_xml: string | null
-  enlace_cdr: string | null
-  codigo_qr: string | null
-  aceptada_por_sunat: boolean | null
-  sunat_description: string | null
-  respuesta_error: string | null
-  intentos: number
-  created_at: string
-  updated_at: string
-}
-
 export interface Sale {
   id: string
   numero: number
-  location_id: string | null
-  cajero_id: string | null
-  cash_session_id: string | null
   fecha: string
   subtotal: number
   impuesto: number
   total: number
   estado: string
-  cliente_doc: string | null
-  cliente_id: string | null
-  client_transaction_id: string | null
-  tipo_comprobante: TipoComprobante
-  comprobante_serie: string | null
-  comprobante_correlativo: number | null
-  comprobante_cliente_tipo_doc: TipoDocumentoCliente | null
-  comprobante_cliente_num_doc: string | null
-  comprobante_cliente_denominacion: string | null
-  comprobante_cliente_direccion: string | null
 }
 
-export interface SaleItem {
-  id: string
-  sale_id: string
-  variant_id: string
-  cantidad: number
-  precio_unitario: number
-  subtotal: number
-  descuento: number
-  producto_nombre_snapshot: string | null
-  costo_snapshot: number | null
+export type TipoComprobante = 'boleta' | 'factura'
+export type TipoDocumentoCliente = 'dni' | 'ruc' | null
+export interface DatosComprobante {
+  tipoComprobante: TipoComprobante
+  clienteTipoDoc: TipoDocumentoCliente
+  clienteNumDoc: string | null
+  clienteDenominacion: string | null
+  clienteDireccion: string | null
 }
-
-export interface Payment {
-  id: string
-  sale_id: string
-  metodo: MetodoPago
-  monto: number
-  referencia: string | null
-}
-
-export interface InventoryMovement {
-  id: string
-  variant_id: string
-  location_id: string
-  cantidad_delta: number
-  motivo: string
-  staff_id: string | null
-  created_at: string
-}
-
-export interface AppUser {
-  id: string
-  email: string | null
-}
-
-export type SyncEstado = 'PENDING' | 'SYNCING' | 'SYNCED' | 'FAILED'
-
-export interface SyncOperation {
-  localId?: number
-  clientTransactionId: string
-  estado: SyncEstado
-  intentos: number
-  ultimoError: string | null
-  createdAt: string
-}
-
-export interface OrdenServicio {
-  id: string
-  numero: number
-  cliente_id: string | null
-  cliente_nombre: string
-  cliente_telefono: string | null
-  equipo_marca: string | null
-  equipo_modelo: string | null
-  problema: string
-  diagnostico: string | null
-  estado: EstadoOrden
-  costo_estimado: number | null
-  costo_final: number | null
-  fecha_recepcion: string
-  fecha_entrega: string | null
-  notas: string | null
-  location_id: string | null
-  venta_id: string | null
-}
+export type SyncEstado = 'PENDING' | 'SYNCING' | 'FAILED'
+export interface OrdenServicio { id:string; numero:number; cliente_nombre:string; cliente_telefono:string|null; equipo_marca:string|null; equipo_modelo:string|null; estado:EstadoOrden; venta_id?:string|null }
+export type EstadoComprobante = 'pendiente'|'emitido'|'error'

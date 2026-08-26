@@ -16,6 +16,7 @@ P0 personal/turnos: DONE.
 P1 POS crítico: DONE.
 P2 abastecimiento/inventario base: DONE.
 P3 Taller técnico avanzado base: DONE.
+Navegación/sidebar por categorías: DONE.
 
 ## ELITE-04 — Cierre gerencial
 

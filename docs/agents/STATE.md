@@ -32,6 +32,14 @@ La ola ELITE-01/02/15/16 cerró su bloque principal. Seguridad y Testing siguen 
 - Proveedores, órdenes/recepciones de compra
 - Transferencias, conteo físico e IMEI/seriales
 - Taller técnico avanzado
+- Sidebar simplificado: accesos operativos principales visibles y módulos secundarios agrupados por categoría, con permisos, ruta activa, móvil y modo compacto preservados
+
+## Navegación — 2026-08-25
+
+- Principales: Dashboard (solo administración), Nueva venta, Caja, Inventario y Clientes.
+- Categorías: Ventas; Inventario y compras; CRM y comunicación; Gestión; Sistema / Administración.
+- Los grupos inician cerrados salvo el de la ruta activa; las categorías vacías se ocultan.
+- Verificación visual completada para administrador y vendedor en escritorio, compacto y móvil.
 
 ## Ola activa — avances
 

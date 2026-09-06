@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Clock, TrendingUp, AlertTriangle, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
 import { sumarMontos, restarMontos } from '../lib/money'
+import { getVentasPendientes } from '../lib/offline'
 import type { CashSession, CashMovement, CashMovementTipo } from '../types'
 
 const TIPOS_BASICOS: { value: CashMovementTipo; label: string }[] = [
@@ -45,6 +46,7 @@ export default function Caja() {
   const [movMonto, setMovMonto] = useState('')
   const [movMotivo, setMovMotivo] = useState('')
   const [registrandoMov, setRegistrandoMov] = useState(false)
+  const [ventasSinSincronizar, setVentasSinSincronizar] = useState(0)
 
   const cargarSesion = async () => {
     if (!staff) return
@@ -62,8 +64,16 @@ export default function Caja() {
   }
   useEffect(() => { cargarSesion(); cargarHistorial() }, [staff])
   useEffect(() => {
-    if (!sesionActiva) { setMovimientos([]); return }
+    if (!sesionActiva) { setMovimientos([]); setVentasSinSincronizar(0); return }
     cargarMovimientos(sesionActiva.id)
+    const revisarPendientes = () => {
+      getVentasPendientes().then((todas) => {
+        setVentasSinSincronizar(todas.filter((v) => v.cashSessionId === sesionActiva.id).length)
+      })
+    }
+    revisarPendientes()
+    const intervalo = setInterval(revisarPendientes, 5000)
+    return () => clearInterval(intervalo)
   }, [sesionActiva?.id])
 
   const ventasEfectivo = sumarMontos(movimientos.filter((m) => m.tipo === 'venta_efectivo').map((m) => m.monto))
@@ -84,6 +94,12 @@ export default function Caja() {
   }
   const cerrarTurno = async () => {
     if (!sesionActiva) return
+    const pendientes = (await getVentasPendientes()).filter((v) => v.cashSessionId === sesionActiva.id)
+    if (pendientes.length > 0) {
+      setVentasSinSincronizar(pendientes.length)
+      showToast('No puedes cerrar: aún hay ventas de este dispositivo sin sincronizar', 'error')
+      return
+    }
     setCargando(true)
     const { error } = await supabase.from('cash_sessions').update({ cierre: new Date().toISOString(), monto_final_contado: Number(montoContado) || 0 }).eq('id', sesionActiva.id)
     setCargando(false)
@@ -192,8 +208,15 @@ export default function Caja() {
               {diferenciaPreview === 0 ? 'Cuadra exacto' : `Diferencia: ${diferenciaPreview >= 0 ? '+' : ''}S/ ${diferenciaPreview.toFixed(2)}`}
             </p>
           )}
+          {ventasSinSincronizar > 0 && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 mb-4">
+              <p className="text-sm text-red-300 flex items-center gap-2"><AlertTriangle size={15} className="shrink-0" />
+                Tienes {ventasSinSincronizar} venta{ventasSinSincronizar > 1 ? 's' : ''} de este dispositivo aún sin sincronizar. No puedes cerrar la caja hasta que se suban (conéctate a internet y espera, o revisa el <Link to="/offline" className="underline font-semibold">panel offline</Link>).
+              </p>
+            </div>
+          )}
           {!confirmandoCierre ? (
-            <button onClick={() => setConfirmandoCierre(true)} className="bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold px-6 py-3 rounded-xl hover:shadow-lg hover:shadow-orange-500/30 transition-all">Cerrar caja</button>
+            <button onClick={() => setConfirmandoCierre(true)} disabled={ventasSinSincronizar > 0} className="bg-gradient-to-r from-orange-500 to-orange-600 text-white font-bold px-6 py-3 rounded-xl hover:shadow-lg hover:shadow-orange-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:shadow-none">Cerrar caja</button>
           ) : (
             <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4">
               <p className="text-sm text-orange-300 mb-3 flex items-center gap-2"><AlertTriangle size={15} className="shrink-0" /> Esta acción cierra tu caja y no se puede deshacer. ¿Confirmas?</p>
@@ -212,6 +235,9 @@ export default function Caja() {
             <div>
               <p className="font-medium text-white text-sm">{new Date(s.apertura).toLocaleDateString('es-PE')}</p>
               <p className="text-xs text-gray-500">Inicial S/ {s.monto_inicial.toFixed(2)} · Contado S/ {(s.monto_final_contado ?? 0).toFixed(2)}</p>
+              {s.recalculado_tras_cierre && (
+                <p className="text-xs text-yellow-500 mt-0.5">Recalculada: llegó una venta offline después del cierre</p>
+              )}
             </div>
             <span className={`font-bold text-sm ${(s.diferencia ?? 0) === 0 ? 'text-gray-500' : (s.diferencia ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}`}>
               {(s.diferencia ?? 0) >= 0 ? '+' : ''}S/ {(s.diferencia ?? 0).toFixed(2)}

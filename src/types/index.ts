@@ -57,6 +57,7 @@ export interface CashSession {
   monto_final_esperado: number | null
   monto_final_contado: number | null
   diferencia: number | null
+  recalculado_tras_cierre?: boolean
 }
 
 export type StaffRol = 'cajero' | 'administrador'

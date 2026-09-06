@@ -10,9 +10,14 @@ type SucursalAcceso={location_id:string;nombre:string;direccion:string|null;acti
 type NavItem={to:string;label:string;icon:React.ComponentType<{size?:number;className?:string}>}
 type NavSection={id:string;label:string;icon:React.ComponentType<{size?:number;className?:string}>;items:NavItem[]}
 
+const SIDEBAR_MIN = 208
+const SIDEBAR_MAX = 420
+
 export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(() => { const stored=localStorage.getItem('lukatcell_sidebar_collapsed'); return stored!==null?stored==='1':window.innerWidth<1024 })
+  const [sidebarWidth, setSidebarWidth] = useState(() => { const stored = Number(localStorage.getItem('lukatcell_sidebar_width')); return stored >= SIDEBAR_MIN && stored <= SIDEBAR_MAX ? stored : 240 })
+  const [redimensionando, setRedimensionando] = useState(false)
   const [openSections,setOpenSections]=useState<Record<string,boolean>>({})
   const location=useLocation()
   const { staff, isAdmin, cashSessionId, jornadaActiva, signOut } = useAuth()
@@ -65,6 +70,22 @@ export default function Layout() {
   const sections=sharedSections.filter(section=>section.items.length>0)
 
   useEffect(()=>{localStorage.setItem('lukatcell_sidebar_collapsed',collapsed?'1':'0')},[collapsed])
+  useEffect(()=>{localStorage.setItem('lukatcell_sidebar_width',String(sidebarWidth))},[sidebarWidth])
+  // Los listeners se agregan en el propio mousedown (no vía useEffect reaccionando
+  // al estado) para no perder los primeros píxeles de arrastre mientras React
+  // todavía no terminó de re-renderizar y montar el efecto.
+  const iniciarRedimension = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setRedimensionando(true)
+    const onMove = (ev: MouseEvent) => setSidebarWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX)))
+    const onUp = () => {
+      setRedimensionando(false)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
   useEffect(()=>{
     const active=sections.find(s=>s.items.some(i=>i.to==='/'?location.pathname==='/':location.pathname.startsWith(i.to)))
     if(active&&!openSections[active.id])setOpenSections(prev=>({...prev,[active.id]:true}))
@@ -96,10 +117,10 @@ export default function Layout() {
       </div>
     })}</>
   }
-  return <div className={`flex h-screen bg-[#0d1117] ${roleClass}`}>
+  return <div className={`flex h-screen bg-[#0d1117] ${roleClass} ${redimensionando?'select-none cursor-col-resize':''}`}>
     <div className="md:hidden fixed top-0 left-0 right-0 z-40 bg-[#010409] border-b border-[#30363d] flex items-center justify-between px-4 pb-3" style={{paddingTop:'calc(0.75rem + env(safe-area-inset-top))'}}><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center"><Smartphone size={14} className="text-black"/></div><div><span className="font-display font-bold text-sm text-white block leading-none">LUKATCELL</span><EstadoBadge compact/></div></div><div className="flex items-center gap-3">{!online&&<WifiOff size={16} className="text-orange-400"/>}<button type="button" aria-label={menuOpen?'Cerrar menú':'Abrir menú'} onClick={()=>setMenuOpen(!menuOpen)} className="text-gray-400">{menuOpen?<X size={22}/>:<Menu size={22}/>}</button></div></div>
     {menuOpen&&<div className="md:hidden fixed inset-0 z-30 bg-black/60" onClick={()=>setMenuOpen(false)}><nav className="absolute mobile-header-offset left-0 right-0 bg-[#010409] border-b border-[#30363d] p-3 max-h-[85vh] overflow-y-auto" onClick={e=>e.stopPropagation()}><SelectorSucursal mobile/>{links(true)}<button onClick={()=>{setMenuOpen(false);signOut()}} className="w-full flex items-center gap-3 px-4 py-3 mt-2 border-t border-[#30363d] text-gray-500 hover:text-red-400"><LogOut size={18}/>Cerrar sesión</button></nav></div>}
-    <aside className={`hidden md:flex flex-col shrink-0 border-r border-[#30363d] bg-[#010409] transition-all ${collapsed?'w-16':'w-60'}`}><div className={`flex items-center gap-2 py-4 border-b border-[#30363d] ${collapsed?'justify-center px-2':'px-4'}`}><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center"><Smartphone size={16} className="text-black"/></div>{!collapsed&&<div><p className="font-display font-bold text-sm text-white">LUKATCELL</p><p className="text-[10px] text-cyan-500 uppercase tracking-widest">Punto de venta</p></div>}</div>{!collapsed&&<><SelectorSucursal/><div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge/></div></>}<nav className="flex-1 py-3 overflow-y-auto">{links()}</nav><div className="border-t border-[#30363d] p-2">{!collapsed&&staff&&<div className="px-2 py-2"><p className="text-xs font-semibold text-white truncate">{staff.nombre}</p><p className="text-[10px] text-gray-500 capitalize">{staff.puesto||staff.rol}</p></div>}<button onClick={signOut} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 ${collapsed?'justify-center':'px-2'}`}><LogOut size={16}/>{!collapsed&&<span className="text-xs">Cerrar sesión</span>}</button><button onClick={()=>setCollapsed(!collapsed)} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white ${collapsed?'justify-center':'px-2'}`}>{collapsed?<ChevronsRight size={16}/>:<ChevronsLeft size={16}/>} {!collapsed&&<span className="text-xs">Colapsar</span>}</button></div></aside>
+    <aside style={collapsed?undefined:{width:sidebarWidth}} className={`hidden md:flex flex-col shrink-0 relative border-r border-[#30363d] bg-[#010409] ${redimensionando?'':'transition-all'} ${collapsed?'w-16':''}`}>{!collapsed&&<div onMouseDown={iniciarRedimension} className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize z-10 hover:bg-cyan-500/40 active:bg-cyan-500/60" title="Arrastra para cambiar el ancho"/>}<div className={`flex items-center gap-2 py-4 border-b border-[#30363d] ${collapsed?'justify-center px-2':'px-4'}`}><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-400 to-cyan-600 flex items-center justify-center"><Smartphone size={16} className="text-black"/></div>{!collapsed&&<div><p className="font-display font-bold text-sm text-white">LUKATCELL</p><p className="text-[10px] text-cyan-500 uppercase tracking-widest">Punto de venta</p></div>}</div>{!collapsed&&<><SelectorSucursal/><div className="px-4 py-2 border-b border-[#30363d]"><EstadoBadge/></div></>}<nav className="flex-1 py-3 overflow-y-auto">{links()}</nav><div className="border-t border-[#30363d] p-2">{!collapsed&&staff&&<div className="px-2 py-2"><p className="text-xs font-semibold text-white truncate">{staff.nombre}</p><p className="text-[10px] text-gray-500 capitalize">{staff.puesto||staff.rol}</p></div>}<button onClick={signOut} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-red-400 ${collapsed?'justify-center':'px-2'}`}><LogOut size={16}/>{!collapsed&&<span className="text-xs">Cerrar sesión</span>}</button><button onClick={()=>setCollapsed(!collapsed)} className={`w-full flex items-center gap-3 py-2 rounded-lg text-gray-500 hover:text-white ${collapsed?'justify-center':'px-2'}`}>{collapsed?<ChevronsRight size={16}/>:<ChevronsLeft size={16}/>} {!collapsed&&<span className="text-xs">Colapsar</span>}</button></div></aside>
     <main className="flex-1 min-w-0 overflow-y-auto mobile-header-pad flex flex-col">{!online&&<div className="bg-orange-500/15 border-b border-orange-500/30 text-orange-400 text-xs font-semibold px-4 py-2"><WifiOff size={13} className="inline mr-2"/>OFFLINE — ventas guardadas para sincronización {pendientes>0&&`(${pendientes})`}</div>}{online&&pendientes>0&&<div className="bg-cyan-500/15 border-b border-cyan-500/30 text-cyan-400 text-xs font-semibold px-4 py-2">Sincronizando {pendientes} venta(s)...</div>}{online&&fallidas>0&&pendientes===0&&<div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2">{fallidas} venta(s) con error de sincronización</div>}{online&&agotadas>0&&<div className="bg-red-500/15 border-b border-red-500/30 text-red-400 text-xs font-semibold px-4 py-2 flex justify-between"><span>{agotadas} venta(s) requieren atención</span><button onClick={reintentar} disabled={reintentandoManual} className="underline">{reintentandoManual?'Reintentando...':'Reintentar'}</button></div>}<div className="flex-1 min-w-0 min-h-0"><Outlet/></div></main>
   </div>
 }

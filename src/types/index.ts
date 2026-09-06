@@ -62,6 +62,21 @@ export interface CashSession {
 export type StaffRol = 'cajero' | 'administrador'
 export type StaffPuesto = 'jefa' | 'vendedor' | 'tecnico' | 'encargado'
 
+export type CashMovementTipo = 'venta_efectivo' | 'devolucion_efectivo' | 'ingreso' | 'retiro' | 'deposito_banco' | 'retiro_banco' | 'gasto' | 'pago_proveedor' | 'ajuste'
+
+export interface CashMovement {
+  id: string
+  cash_session_id: string
+  tipo: CashMovementTipo
+  monto: number
+  motivo: string | null
+  referencia_tipo: string | null
+  referencia_id: string | null
+  staff_id: string
+  reversa_de: string | null
+  created_at: string
+}
+
 export interface Staff {
   id: string
   user_id: string

@@ -713,7 +713,7 @@ function ModalEditarProducto({ fila, categorias, modelos, onClose, onSaved, onAg
             <input type="number" min="0" step="0.01" value={precioBase} onChange={(e) => setPrecioBase(e.target.value)}
               className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-4 py-2.5 mt-1 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
-          <SubirImagenProducto valor={imagenUrl} onChange={setImagenUrl} />
+          <SubirImagenProducto valor={imagenUrl} onChange={setImagenUrl} productoId={p.id} />
         </div>
 
         <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-2">Esta variante</p>

@@ -10,9 +10,13 @@ const QR_TTL_MS = 10 * 60 * 1000
 interface Props {
   valor: string
   onChange: (url: string) => void
+  // Si se está editando un producto que YA existe, se guarda la foto directo en
+  // la base de datos apenas llega (no depende de que alguien recuerde darle
+  // "Guardar cambios" después de escanear el QR desde el celular).
+  productoId?: string
 }
 
-export default function SubirImagenProducto({ valor, onChange }: Props) {
+export default function SubirImagenProducto({ valor, onChange, productoId }: Props) {
   const { staff } = useAuth()
   const [subiendo, setSubiendo] = useState(false)
   const [error, setError] = useState('')
@@ -25,21 +29,35 @@ export default function SubirImagenProducto({ valor, onChange }: Props) {
 
   useEffect(() => {
     if (!qrAbierto || !sesionIdRef.current) return
+    let yaAplicado = false
+    const aplicar = async (url: string) => {
+      if (yaAplicado) return
+      yaAplicado = true
+      setQrEstado('completado')
+      onChange(url)
+      if (productoId) await supabase.from('products').update({ imagen_url: url }).eq('id', productoId)
+      setTimeout(() => setQrAbierto(false), 1200)
+    }
+
     const canal = supabase
       .channel(`sesion_subida_${sesionIdRef.current}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sesiones_subida_imagen', filter: `id=eq.${sesionIdRef.current}` }, (payload) => {
         const fila = payload.new as { estado: string; url: string | null }
-        if (fila.estado === 'completado' && fila.url) {
-          setQrEstado('completado')
-          onChange(fila.url)
-          setTimeout(() => setQrAbierto(false), 1200)
-        }
+        if (fila.estado === 'completado' && fila.url) aplicar(fila.url)
       })
       .subscribe()
 
+    // Respaldo por si la notificación en vivo no llega (ej. pestaña en segundo
+    // plano mientras se usa el celular) — sin esto, una foto ya subida podía
+    // quedar sin aplicarse y parecer "perdida".
+    const sondeo = setInterval(async () => {
+      const { data } = await supabase.from('sesiones_subida_imagen').select('estado, url').eq('id', sesionIdRef.current as string).maybeSingle()
+      if (data?.estado === 'completado' && data.url) aplicar(data.url)
+    }, 2500)
+
     const vencimiento = setTimeout(() => setQrEstado((e) => e === 'esperando' ? 'expirado' : e), QR_TTL_MS)
 
-    return () => { supabase.removeChannel(canal); clearTimeout(vencimiento) }
+    return () => { supabase.removeChannel(canal); clearInterval(sondeo); clearTimeout(vencimiento) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qrAbierto])
 

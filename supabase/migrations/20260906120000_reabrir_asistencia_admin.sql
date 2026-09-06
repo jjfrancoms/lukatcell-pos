@@ -2,9 +2,16 @@
 -- error, sin tener que editar la tabla a mano desde el panel de Supabase.
 -- Queda auditada igual que el resto de correcciones administrativas del sistema.
 
-create trigger audit_asistencias
-  after insert or update or delete on public.asistencias
-  for each row execute function private.registrar_auditoria();
+do $$
+begin
+  if not exists (
+    select 1 from pg_trigger where tgname = 'audit_asistencias' and tgrelid = 'public.asistencias'::regclass
+  ) then
+    create trigger audit_asistencias
+      after insert or update or delete on public.asistencias
+      for each row execute function private.registrar_auditoria();
+  end if;
+end $$;
 
 create or replace function public.reabrir_asistencia(p_asistencia_id uuid, p_motivo text)
 returns public.asistencias

@@ -6,12 +6,13 @@ import { useToast } from '../lib/toast'
 
 type Cxp={factura_id:string;proveedor:string;documento:string;fecha_emision:string;fecha_vencimiento:string|null;total:number;pagado:number;saldo:number;estado:string;dias_vencido:number}
 type Proveedor={id:string;nombre:string}
-type Factura={id:string;proveedor_id:string;serie:string;numero:string;total:number;pagado:number;estado:string;storage_path:string|null;signed_url?:string|null;proveedor:{nombre:string}|null}
+type Factura={id:string;proveedor_id:string;location_id:string;serie:string;numero:string;total:number;pagado:number;estado:string;storage_path:string|null;signed_url?:string|null;proveedor:{nombre:string}|null}
+type CajaAbierta={id:string;monto_inicial:number;cajero:{nombre:string}|null}
 const money=(v:number)=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(Number(v||0))
 
 export default function CuentasPorPagar(){
  const {showToast}=useToast(); const [cxp,setCxp]=useState<Cxp[]>([]); const [providers,setProviders]=useState<Proveedor[]>([]); const [facturas,setFacturas]=useState<Factura[]>([]); const [loading,setLoading]=useState(true); const [showNew,setShowNew]=useState(false); const [pay,setPay]=useState<Factura|null>(null)
- const load=async()=>{setLoading(true);const [c,p,f]=await Promise.all([supabase.rpc('cuentas_por_pagar_admin'),supabase.from('proveedores').select('id,nombre').eq('activo',true).order('nombre'),supabase.from('facturas_proveedor').select('id,proveedor_id,serie,numero,total,pagado,estado,storage_path,proveedor:proveedores(nombre)').order('created_at',{ascending:false}).limit(100)]);if(c.error||p.error||f.error)showToast('No se pudieron cargar las cuentas por pagar','error');setCxp((c.data as Cxp[])||[]);setProviders(p.data||[]);const raw=(f.data as unknown as Factura[])||[];const signed=await Promise.all(raw.map(async row=>{if(!row.storage_path)return row;const {data}=await supabase.storage.from('compras-documentos').createSignedUrl(row.storage_path,3600);return {...row,signed_url:data?.signedUrl||null}}));setFacturas(signed);setLoading(false)}
+ const load=async()=>{setLoading(true);const [c,p,f]=await Promise.all([supabase.rpc('cuentas_por_pagar_admin'),supabase.from('proveedores').select('id,nombre').eq('activo',true).order('nombre'),supabase.from('facturas_proveedor').select('id,proveedor_id,location_id,serie,numero,total,pagado,estado,storage_path,proveedor:proveedores(nombre)').order('created_at',{ascending:false}).limit(100)]);if(c.error||p.error||f.error)showToast('No se pudieron cargar las cuentas por pagar','error');setCxp((c.data as Cxp[])||[]);setProviders(p.data||[]);const raw=(f.data as unknown as Factura[])||[];const signed=await Promise.all(raw.map(async row=>{if(!row.storage_path)return row;const {data}=await supabase.storage.from('compras-documentos').createSignedUrl(row.storage_path,3600);return {...row,signed_url:data?.signedUrl||null}}));setFacturas(signed);setLoading(false)}
  useEffect(()=>{load()},[])
  const saldo=cxp.reduce((a,x)=>a+Number(x.saldo||0),0), vencido=cxp.filter(x=>x.dias_vencido>0).reduce((a,x)=>a+Number(x.saldo||0),0)
  return <div className="p-3 md:p-5 max-w-7xl mx-auto"><div className="flex flex-wrap items-center justify-between gap-3 mb-5"><div><div className="flex gap-2 items-center"><WalletCards size={20} className="text-cyan-400"/><h1 className="text-xl font-bold text-white">Cuentas por pagar</h1></div><p className="text-xs text-gray-500 mt-1">Facturas de proveedores, vencimientos, pagos y documentos privados.</p></div><div className="flex gap-2"><button onClick={load} className="p-2.5 rounded-xl border border-[#30363d] text-gray-400"><RefreshCw size={16}/></button><button onClick={()=>setShowNew(true)} className="rounded-xl bg-cyan-500 text-black px-3 py-2 text-sm font-bold inline-flex items-center gap-2"><Plus size={15}/>Registrar factura</button></div></div>
@@ -21,7 +22,43 @@ export default function CuentasPorPagar(){
 }
 
 function NuevaFactura({providers,onClose,onSaved}:{providers:Proveedor[];onClose:()=>void;onSaved:()=>void}){const {staff}=useAuth();const {showToast}=useToast();const [f,setF]=useState({proveedor_id:'',serie:'',numero:'',fecha_emision:new Date().toISOString().slice(0,10),fecha_vencimiento:'',total:'',observacion:''});const [file,setFile]=useState<File|null>(null);const [saving,setSaving]=useState(false);const save=async()=>{if(!staff?.location_id)return;setSaving(true);let storagePath:string|null=null;if(file){const ext=(file.name.split('.').pop()||'bin').toLowerCase();storagePath=`${staff.location_id}/facturas/${crypto.randomUUID()}.${ext}`;const {error:uploadError}=await supabase.storage.from('compras-documentos').upload(storagePath,file,{upsert:false});if(uploadError){setSaving(false);showToast(uploadError.message,'error');return}}const {error}=await supabase.rpc('registrar_factura_proveedor',{p_proveedor_id:f.proveedor_id,p_orden_id:null,p_tipo_documento:'factura',p_serie:f.serie,p_numero:f.numero,p_fecha_emision:f.fecha_emision,p_fecha_vencimiento:f.fecha_vencimiento||null,p_total:Number(f.total),p_storage_path:storagePath,p_observacion:f.observacion||null});if(error){if(storagePath)await supabase.storage.from('compras-documentos').remove([storagePath]);setSaving(false);showToast(error.message,'error');return}setSaving(false);showToast('Factura registrada','success');onSaved()};return <Modal title="Registrar factura" onClose={onClose}><select value={f.proveedor_id} onChange={e=>setF({...f,proveedor_id:e.target.value})} className="input-personal w-full"><option value="">Proveedor...</option>{providers.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}</select><div className="grid grid-cols-2 gap-2"><Input label="Serie" value={f.serie} onChange={v=>setF({...f,serie:v})}/><Input label="Número" value={f.numero} onChange={v=>setF({...f,numero:v})}/><Input label="Emisión" type="date" value={f.fecha_emision} onChange={v=>setF({...f,fecha_emision:v})}/><Input label="Vencimiento" type="date" value={f.fecha_vencimiento} onChange={v=>setF({...f,fecha_vencimiento:v})}/></div><Input label="Total" type="number" value={f.total} onChange={v=>setF({...f,total:v})}/><textarea value={f.observacion} onChange={e=>setF({...f,observacion:e.target.value})} placeholder="Observación" className="input-personal w-full"/><label className="block rounded-xl border border-dashed border-[#30363d] bg-[#0d1117] p-3 cursor-pointer"><span className="flex items-center gap-2 text-xs text-gray-400"><Paperclip size={14}/>{file?file.name:'Adjuntar PDF o imagen (opcional)'}</span><input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={e=>setFile(e.target.files?.[0]||null)}/></label><button onClick={save} disabled={saving||!f.proveedor_id||!f.serie||!f.numero||!f.total} className="w-full rounded-xl bg-cyan-500 text-black py-2.5 font-bold disabled:opacity-40">{saving?'Guardando...':'Guardar'}</button></Modal>}
-function PagoFactura({factura,onClose,onSaved}:{factura:Factura;onClose:()=>void;onSaved:()=>void}){const {showToast}=useToast();const [monto,setMonto]=useState(String(Number(factura.total)-Number(factura.pagado)));const [metodo,setMetodo]=useState('transferencia');const [ref,setRef]=useState('');const save=async()=>{const {error}=await supabase.rpc('registrar_pago_proveedor',{p_factura_id:factura.id,p_monto:Number(monto),p_metodo:metodo,p_referencia:ref||null});if(error){showToast(error.message,'error');return}showToast('Pago registrado','success');onSaved()};return <Modal title={`${factura.proveedor?.nombre||'Proveedor'} · ${factura.serie}-${factura.numero}`} onClose={onClose}><Input label="Monto" type="number" value={monto} onChange={setMonto}/><select value={metodo} onChange={e=>setMetodo(e.target.value)} className="input-personal w-full"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select><Input label="Referencia" value={ref} onChange={setRef}/><button onClick={save} className="w-full rounded-xl bg-cyan-500 text-black py-2.5 font-bold">Registrar pago</button></Modal>}
+function PagoFactura({factura,onClose,onSaved}:{factura:Factura;onClose:()=>void;onSaved:()=>void}){
+ const {showToast}=useToast()
+ const [monto,setMonto]=useState(String(Number(factura.total)-Number(factura.pagado)))
+ const [metodo,setMetodo]=useState('transferencia')
+ const [ref,setRef]=useState('')
+ const [cajas,setCajas]=useState<CajaAbierta[]>([])
+ const [cajaId,setCajaId]=useState('')
+ const [saving,setSaving]=useState(false)
+ const [error,setError]=useState('')
+ useEffect(()=>{
+  if(metodo!=='efectivo')return
+  supabase.from('cash_sessions').select('id,monto_inicial,cajero:staff!cash_sessions_cajero_id_fkey(nombre)').eq('location_id',factura.location_id).is('cierre',null).order('apertura',{ascending:false})
+   .then(({data})=>{setCajas((data as unknown as CajaAbierta[])||[]);setCajaId(data?.[0]?.id||'')})
+ },[metodo,factura.location_id])
+ const save=async()=>{
+  setError('')
+  if(metodo==='efectivo'&&!cajaId){setError('Selecciona la caja abierta de la que sale el efectivo');return}
+  setSaving(true)
+  const {error:e}=await supabase.rpc('registrar_pago_proveedor',{p_factura_id:factura.id,p_monto:Number(monto),p_metodo:metodo,p_referencia:ref||null,p_cash_session_id:metodo==='efectivo'?cajaId:null})
+  setSaving(false)
+  if(e){setError(e.message);return}
+  showToast('Pago registrado','success');onSaved()
+ }
+ return <Modal title={`${factura.proveedor?.nombre||'Proveedor'} · ${factura.serie}-${factura.numero}`} onClose={onClose}>
+  <Input label="Monto" type="number" value={monto} onChange={setMonto}/>
+  <select value={metodo} onChange={e=>{setMetodo(e.target.value);setError('')}} className="input-personal w-full"><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select>
+  {metodo==='efectivo'&&<label className="block"><span className="text-xs text-gray-500">Caja de la que sale el efectivo</span>
+    <select value={cajaId} onChange={e=>setCajaId(e.target.value)} className="input-personal w-full mt-1">
+      <option value="">{cajas.length?'Selecciona caja abierta':'No hay cajas abiertas en esta sucursal'}</option>
+      {cajas.map(c=><option key={c.id} value={c.id}>{c.cajero?.nombre||'Caja'} · inicial {money(c.monto_inicial)}</option>)}
+    </select>
+  </label>}
+  <Input label="Referencia" value={ref} onChange={setRef}/>
+  {error&&<p className="rounded-lg bg-red-500/10 p-2 text-xs text-red-400">{error}</p>}
+  <button onClick={save} disabled={saving||(metodo==='efectivo'&&!cajaId)} className="w-full rounded-xl bg-cyan-500 text-black py-2.5 font-bold disabled:opacity-40">{saving?'Registrando...':'Registrar pago'}</button>
+ </Modal>
+}
 function Modal({title,onClose,children}:{title:string;onClose:()=>void;children:React.ReactNode}){return <div className="fixed inset-0 z-50 bg-black/60 flex items-end md:items-center justify-center"><div className="w-full max-w-md rounded-t-2xl md:rounded-2xl border border-[#30363d] bg-[#161b22] p-5 space-y-3"><div className="flex justify-between"><h3 className="font-bold text-white">{title}</h3><button onClick={onClose} className="text-gray-500">×</button></div>{children}</div></div>}
 function Input({label,value,onChange,type='text'}:{label:string;value:string;onChange:(v:string)=>void;type?:string}){return <label className="block"><span className="text-xs text-gray-500">{label}</span><input type={type} value={value} onChange={e=>onChange(e.target.value)} className="input-personal w-full mt-1"/></label>}
 function Metric({label,value}:{label:string;value:string}){return <div className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4"><p className="text-[11px] text-gray-500">{label}</p><p className="text-xl font-bold text-white mt-1">{value}</p></div>}

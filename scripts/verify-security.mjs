@@ -21,6 +21,7 @@ const compras = read('src/pages/Compras.tsx')
 const transferencias = read('src/pages/Transferencias.tsx')
 const conteo = read('src/pages/ConteoInventario.tsx')
 const seriales = read('src/pages/Seriales.tsx')
+const selectorSeriales = read('src/components/SelectorSeriales.tsx')
 const taller = read('src/pages/Taller.tsx')
 const app = read('src/App.tsx')
 const layout = read('src/components/Layout.tsx')
@@ -99,7 +100,9 @@ assert(conteo.includes("rpc('cerrar_inventario_fisico'"), 'Conteo físico aplica
 assert(!conteo.includes("from('inventory').update("), 'Conteo físico no altera inventario desde UI')
 assert(seriales.includes("rpc('configurar_control_serial'"), 'Control serial se configura por RPC')
 assert(seriales.includes("rpc('registrar_seriales'"), 'Alta de seriales usa RPC')
-assert(seriales.includes("rpc('reservar_seriales_carrito'"), 'Seriales pueden reservarse para venta')
+assert(!seriales.includes("rpc('reservar_seriales_carrito'"), 'Seriales.tsx ya no reserva IMEI directamente (P0.1: solo el carrito reserva)')
+assert(selectorSeriales.includes("rpc('reservar_seriales_carrito'"), 'La reserva de IMEI ocurre en el selector del carrito, atada al client_transaction_id')
+assert(selectorSeriales.includes('cartTransactionId'), 'La reserva de IMEI está atada a un carrito específico, no solo a staff+variante')
 assert(!seriales.includes("from('product_serials').insert("), 'UI no inserta IMEI/seriales directamente')
 
 // P3 — taller avanzado

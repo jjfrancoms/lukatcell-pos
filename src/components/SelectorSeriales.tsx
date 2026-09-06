@@ -20,11 +20,11 @@ export default function SelectorSeriales({ variantId, nombreProducto, cartTransa
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    supabase.rpc('seriales_disponibles', { p_variant_id: variantId }).then(({ data }) => {
+    supabase.rpc('seriales_disponibles', { p_variant_id: variantId, p_client_transaction_id: cartTransactionId }).then(({ data }) => {
       setSeriales(data || [])
       setCargando(false)
     })
-  }, [variantId])
+  }, [variantId, cartTransactionId])
 
   const toggle = (id: string) => {
     setSeleccion((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id])

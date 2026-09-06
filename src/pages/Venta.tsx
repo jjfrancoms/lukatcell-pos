@@ -220,12 +220,18 @@ export default function Venta() {
     const item = cart.find((i) => i.variant.id === vid); if (!item) return
     const descuento = calcularDescuentoLinea(item.precio_unitario, val, descTipo)
     const pct = item.precio_unitario > 0 ? descuento / item.precio_unitario * 100 : 0
+    // autorizacionId siempre se fija explícitamente (nunca se preserva del
+    // estado anterior): si este descuento ya no necesita autorización, una
+    // autorización vieja de un intento anterior con un monto mayor no debe
+    // quedar pegada a la línea y reenviarse a registrar_venta sin sentido.
+    let autorizacionId: string | null = null
     if (!isAdmin && pct > limiteDescuento + 0.0001) {
-      const { data: autorizado, error: consumeError } = await supabase.rpc('consumir_autorizacion_descuento', {
+      const { data: resultado, error: consumeError } = await supabase.rpc('consumir_autorizacion_descuento', {
         p_variant_id: vid, p_porcentaje: pct, p_descuento_unitario: descuento
       })
       if (consumeError) { showToast('No se pudo validar la autorización', 'error'); return }
-      if (!autorizado) {
+      const r = resultado as { autorizada: boolean; autorizacion_id: string | null } | null
+      if (!r?.autorizada) {
         const { error } = await supabase.rpc('solicitar_autorizacion', {
           p_tipo: 'descuento', p_motivo: `Descuento solicitado ${pct.toFixed(2)}%`, p_recurso_tipo: 'variant', p_recurso_id: vid,
           p_payload: { variant_id: vid, porcentaje: pct, descuento_unitario: descuento, precio_unitario: item.precio_unitario }
@@ -233,10 +239,13 @@ export default function Venta() {
         showToast(error ? 'No se pudo solicitar autorización' : `Supera tu límite (${limiteDescuento.toFixed(2)}%). Autorización solicitada.`, error ? 'error' : 'info')
         setDescItem(null); setDescValor(''); return
       }
+      autorizacionId = r.autorizacion_id
       showToast('Autorización de descuento aplicada', 'success')
     }
     setDescuentosManuales((m) => ({ ...m, [vid]: descuento }))
-    setCart((p) => p.map((i) => i.variant.id === vid ? { ...i, descuento } : i))
+    setCart((p) => p.map((i) => i.variant.id === vid
+      ? { ...i, descuento, autorizacionId, descuentoOrigen: autorizacionId ? 'autorizacion' : (i.promocionId ? 'promocion' : 'manual') }
+      : i))
     setPromoAplicada(null); setDescItem(null); setDescValor('')
   }
 
@@ -270,16 +279,16 @@ export default function Venta() {
     const payload = cart.map((i) => ({ variant_id: i.variant.id, cantidad: i.cantidad, precio_unitario: i.precio_unitario }))
     const { data, error } = await supabase.rpc('resolver_promociones_carrito', { p_items: payload, p_codigo_cupon: cupon.trim() || null })
     if (error) { setPreparandoCobro(false); showToast('No se pudieron validar promociones', 'error'); return }
-    const promos = (data || []) as { variant_id: string; descuento_promocion_unitario: number; promocion_nombre: string; acumulable: boolean }[]
+    const promos = (data || []) as { variant_id: string; descuento_promocion_unitario: number; promocion_id: string; promocion_nombre: string; acumulable: boolean }[]
     if (cupon.trim() && promos.length === 0) { setPreparandoCobro(false); showToast('Cupón inválido, vencido o no aplicable al carrito', 'error'); return }
     const porVariant = new Map(promos.map((r) => [r.variant_id, r]))
     setCart((prev) => prev.map((i) => {
       const promo = porVariant.get(i.variant.id)
       const manual = Number(descuentosManuales[i.variant.id] || 0)
-      if (!promo) return { ...i, descuento: manual }
+      if (!promo) return { ...i, descuento: manual, promocionId: null, descuentoOrigen: i.autorizacionId ? 'autorizacion' : (manual > 0 ? 'manual' : 'ninguno') }
       const pd = Number(promo.descuento_promocion_unitario || 0)
       const descuento = promo.acumulable ? Math.min(i.precio_unitario, manual + pd) : Math.max(manual, pd)
-      return { ...i, descuento }
+      return { ...i, descuento, promocionId: promo.promocion_id, descuentoOrigen: i.autorizacionId ? 'autorizacion' : 'promocion' }
     }))
     setPromoAplicada(promos[0]?.promocion_nombre || null)
     if (promos.length) showToast(`Promoción aplicada: ${promos[0].promocion_nombre}`, 'success')

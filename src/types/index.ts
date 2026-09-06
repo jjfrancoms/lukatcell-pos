@@ -29,12 +29,21 @@ export interface ProductVariant {
   stock?: number
 }
 
+export type DescuentoOrigen = 'manual' | 'promocion' | 'autorizacion' | 'ninguno'
+
 export interface CartItem {
   variant: ProductVariant
   cantidad: number
   precio_unitario: number
   descuento: number
   serialIds?: string[]
+  // Trazabilidad server-side del descuento: el backend recalcula y valida
+  // estos IDs de forma independiente (nunca confía en el monto que venga del
+  // cliente), pero necesita que el frontend los reenvíe para saber CONTRA
+  // QUÉ validar cada línea.
+  promocionId?: string | null
+  autorizacionId?: string | null
+  descuentoOrigen?: DescuentoOrigen
 }
 
 // Forma mínima que necesita ReciboVenta para dibujar una línea del ticket.

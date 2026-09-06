@@ -325,6 +325,8 @@ export async function registrarVenta(v: {
       precio_unitario: i.precio_unitario,
       descuento: i.descuento,
       subtotal: calcularSubtotalLinea(i.precio_unitario, i.descuento, i.cantidad),
+      promocion_id: i.promocionId || null,
+      autorizacion_id: i.autorizacionId || null,
     })),
     p_pagos: v.pagos.map((p) => ({ metodo: p.metodo, monto: p.monto, referencia: p.referencia || null, pago_digital_id: p.pagoDigitalId || null })),
     p_subtotal: v.subtotal,

@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { BadgeCheck, RefreshCw, AlertTriangle, XCircle, WandSparkles } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { getBusinessDateLima } from '../lib/businessDate'
 
 type Row={id:string;payment_id:string;sale_id:string;metodo:string;monto_esperado:number;monto_confirmado:number|null;referencia_venta:string|null;referencia_proveedor:string|null;proveedor:string|null;estado:string;fecha_venta:string;created_at:string;sale:{numero:number}|null}
 type Summary={fecha:string;pendientes:number;conciliados:number;diferencias:number;rechazados:number;monto_pendiente:number;monto_diferencia:number}
 const money=(v:number)=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(Number(v||0))
 
 export default function ConciliacionPagos(){
- const {showToast}=useToast();const hoy=new Date().toISOString().slice(0,10);const [fecha,setFecha]=useState(hoy);const [rows,setRows]=useState<Row[]>([]);const [summary,setSummary]=useState<Summary|null>(null);const [loading,setLoading]=useState(true);const [selected,setSelected]=useState<Row|null>(null);const [auto,setAuto]=useState(false)
+ const {showToast}=useToast();const hoy=getBusinessDateLima();const [fecha,setFecha]=useState(hoy);const [rows,setRows]=useState<Row[]>([]);const [summary,setSummary]=useState<Summary|null>(null);const [loading,setLoading]=useState(true);const [selected,setSelected]=useState<Row|null>(null);const [auto,setAuto]=useState(false)
  const load=async()=>{setLoading(true);await supabase.rpc('sincronizar_conciliaciones_pago_admin',{});const [r,s]=await Promise.all([supabase.from('conciliaciones_pago').select('id,payment_id,sale_id,metodo,monto_esperado,monto_confirmado,referencia_venta,referencia_proveedor,proveedor,estado,fecha_venta,created_at,sale:sales(numero)').eq('fecha_venta',fecha).order('created_at',{ascending:false}),supabase.rpc('resumen_conciliacion_pagos_admin',{p_fecha:fecha})]);if(r.error||s.error)showToast('No se pudo cargar la conciliación','error');setRows((r.data as unknown as Row[])||[]);setSummary((s.data as Summary)||null);setLoading(false)}
  useEffect(()=>{load()},[fecha])
  const autoConciliar=async()=>{setAuto(true);const start=`${fecha}T00:00:00-05:00`;const end=new Date(start);end.setDate(end.getDate()+1);const {data,error}=await supabase.rpc('auto_conciliar_pagos_digitales_admin',{p_desde:start,p_hasta:end.toISOString()});setAuto(false);if(error){showToast(error.message,'error');return}showToast(`${Number(data||0)} pago(s) digital(es) conciliados automáticamente`,'success');await load()}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CalendarOff, Plus, RefreshCw, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { getBusinessDateLima } from '../lib/businessDate'
 
 interface StaffLite {
   id: string
@@ -88,7 +89,7 @@ export default function PermisosPersonal() {
 }
 
 function ModalPermiso({ staff, onClose, onSaved }: { staff: StaffLite[]; onClose: () => void; onSaved: () => void }) {
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = getBusinessDateLima()
   const [staffId, setStaffId] = useState(staff[0]?.id || '')
   const [tipo, setTipo] = useState<Permiso['tipo']>('permiso')
   const [desde, setDesde] = useState(hoy)

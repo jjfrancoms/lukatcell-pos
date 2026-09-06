@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Plus, RefreshCw, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { getBusinessDateLima, addDaysBusinessDateLima } from '../lib/businessDate'
 
 interface StaffLite {
   id: string
@@ -37,9 +38,9 @@ const hora = (v: string | null) => v ? v.slice(0, 5) : '--:--'
 
 export default function CambiosTurno() {
   const { showToast } = useToast()
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = getBusinessDateLima()
   const [desde, setDesde] = useState(hoy)
-  const [hasta, setHasta] = useState(() => { const d = new Date(); d.setDate(d.getDate() + 30); return d.toISOString().slice(0, 10) })
+  const [hasta, setHasta] = useState(() => addDaysBusinessDateLima(30))
   const [staff, setStaff] = useState<StaffLite[]>([])
   const [turnos, setTurnos] = useState<TurnoLite[]>([])
   const [cambios, setCambios] = useState<CambioTurno[]>([])
@@ -103,7 +104,7 @@ export default function CambiosTurno() {
 }
 
 function ModalCambio({ staff, turnos, onClose, onSaved }: { staff: StaffLite[]; turnos: TurnoLite[]; onClose: () => void; onSaved: () => void }) {
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = getBusinessDateLima()
   const [staffId, setStaffId] = useState(staff[0]?.id || '')
   const [fechaCambio, setFechaCambio] = useState(hoy)
   const [turnoId, setTurnoId] = useState('')

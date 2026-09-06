@@ -3,6 +3,7 @@ import { CalendarClock,FileText,Upload,RefreshCw,X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
+import { getBusinessDateLima } from '../lib/businessDate'
 
 type Solicitud={id:string;tipo:string;fecha_desde:string;fecha_hasta:string;turno_id:string|null;motivo:string;documento_path:string|null;estado:string;resolucion_motivo:string|null;created_at:string;resolved_at:string|null}
 type Documento={id:string;tipo:string;nombre:string;storage_path:string;mime_type:string|null;size_bytes:number|null;vence_el:string|null;observacion:string|null;created_at:string}
@@ -13,7 +14,7 @@ const badge=(e:string)=>e==='aprobada'?'text-green-400 bg-green-500/10 border-gr
 export default function MisSolicitudes(){
  const {staff}=useAuth(); const {showToast}=useToast();
  const [rows,setRows]=useState<Solicitud[]>([]),[docs,setDocs]=useState<Documento[]>([]),[turnos,setTurnos]=useState<Turno[]>([]),[open,setOpen]=useState(false),[loading,setLoading]=useState(false)
- const [tipo,setTipo]=useState('permiso'),[desde,setDesde]=useState(new Date().toISOString().slice(0,10)),[hasta,setHasta]=useState(new Date().toISOString().slice(0,10)),[turno,setTurno]=useState(''),[motivo,setMotivo]=useState(''),[file,setFile]=useState<File|null>(null),[sending,setSending]=useState(false)
+ const [tipo,setTipo]=useState('permiso'),[desde,setDesde]=useState(getBusinessDateLima()),[hasta,setHasta]=useState(getBusinessDateLima()),[turno,setTurno]=useState(''),[motivo,setMotivo]=useState(''),[file,setFile]=useState<File|null>(null),[sending,setSending]=useState(false)
  const load=async()=>{setLoading(true);const [s,d,t]=await Promise.all([supabase.rpc('mis_solicitudes_personal',{p_limit:100}),supabase.rpc('documentos_personal',{p_staff_id:null}),supabase.from('turnos').select('id,nombre,hora_inicio,hora_fin').eq('activo',true).order('hora_inicio')]);setLoading(false);if(s.error||d.error||t.error)showToast('No se pudo cargar autoservicio','error');setRows((s.data as Solicitud[])||[]);setDocs((d.data as Documento[])||[]);setTurnos((t.data as Turno[])||[])}
  useEffect(()=>{load()},[])
  const subir=async(f:File,prefix='solicitudes')=>{if(!staff?.id)throw new Error('Sin personal');const safe=f.name.replace(/[^a-zA-Z0-9._-]/g,'_');const path=`${staff.id}/${prefix}/${crypto.randomUUID()}-${safe}`;const {error}=await supabase.storage.from('personal-documentos').upload(path,f,{upsert:false,contentType:f.type});if(error)throw error;return path}

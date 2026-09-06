@@ -3,6 +3,7 @@ import { BarChart3, Download, Printer, RefreshCw } from 'lucide-react'
 import ExcelJS from 'exceljs'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { formatBusinessDateLima } from '../lib/businessDate'
 
 type Resumen={ventas_total:number;ventas_cantidad:number;ticket_promedio:number;margen_bruto:number;costo_ventas:number}
 type Vendedor={staff_id:string;nombre:string;ventas:number;tickets:number;ticket_promedio:number}
@@ -12,7 +13,7 @@ type Caja={staff_id:string;nombre:string;sesiones:number;diferencia_total:number
 type Taller={ordenes:number;ingresos:number;costo_repuestos:number;rentabilidad:number}
 type Data={resumen:Resumen;comparacion:Resumen|null;por_vendedor:Vendedor[];por_sucursal:Sucursal[];por_categoria:Categoria[];taller:Taller;cajas_por_empleado:Caja[]}
 const money=(v:number)=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(Number(v||0))
-const iso=(d:Date)=>d.toISOString().slice(0,10)
+const iso=(d:Date)=>formatBusinessDateLima(d)
 
 export default function ReportesAvanzados(){
  const {showToast}=useToast();const now=new Date();const before=new Date();before.setDate(now.getDate()-30);const cmpTo=new Date(before);cmpTo.setDate(cmpTo.getDate()-1);const cmpFrom=new Date(cmpTo);cmpFrom.setDate(cmpFrom.getDate()-30)

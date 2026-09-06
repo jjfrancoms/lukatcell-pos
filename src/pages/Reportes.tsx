@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useConfig } from '../lib/config'
 import { sumarMontos } from '../lib/money'
+import { startOfBusinessDayLima, getBusinessDateLima } from '../lib/businessDate'
 import ReciboVenta from '../components/ReciboVenta'
 import type { ReciboLineaItem, PagoDetalle, EstadoComprobante } from '../types'
 
@@ -63,7 +64,7 @@ export default function Reportes() {
   }, [isAdmin])
 
   useEffect(() => {
-    const hoy = new Date(); hoy.setHours(0, 0, 0, 0)
+    const hoy = startOfBusinessDayLima()
     supabase.from('sales').select('id, numero, fecha, total, estado').order('fecha', { ascending: false }).limit(200)
       .then(async ({ data }) => {
         const filas: VentaFila[] = data || []
@@ -141,7 +142,7 @@ export default function Reportes() {
     ws.getRow(1).font = { bold: true }; ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF17BFE0' } }
     ventas.forEach((v) => ws.addRow({ id: v.id.slice(0, 8), fecha: new Date(v.fecha).toLocaleString('es-PE'), total: Number(v.total), estado: v.estado }))
     const buf = await wb.xlsx.writeBuffer(); const blob = new Blob([buf], { type: 'application/octet-stream' })
-    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `ventas_lukatcell_${new Date().toISOString().slice(0, 10)}.xlsx`; a.click(); URL.revokeObjectURL(url)
+    const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `ventas_lukatcell_${getBusinessDateLima()}.xlsx`; a.click(); URL.revokeObjectURL(url)
   }
 
   const maxGanancia = Math.max(1, ...topProductos.map((p) => Number(p.ganancia)))

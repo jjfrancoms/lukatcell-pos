@@ -3,13 +3,14 @@ import { CalendarCheck2, RefreshCw, ShieldCheck, Printer, AlertTriangle } from '
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { getBusinessDateLima } from '../lib/businessDate'
 
 interface Preview {fecha:string;total_ventas:number;cantidad_ventas:number;efectivo:number;digital:number;otros_pagos:number;total_reembolsos:number;cajas_abiertas:number;cajas_cerradas:number;diferencia_cajas:number;ordenes_abiertas:number;stock_critico:number}
 interface Cierre {id:string;fecha:string;total_ventas:number;cantidad_ventas:number;efectivo:number;digital:number;otros_pagos:number;total_reembolsos:number;diferencia_cajas:number;cajas_cerradas:number;ordenes_abiertas:number;stock_critico:number;observacion:string|null;closed_at:string;estado_aprobacion:'pendiente'|'aprobado';aprobado_at:string|null;firma_responsable:string|null;observacion_aprobacion:string|null;diferencia_critica:boolean;conciliaciones_pendientes:number;reporte_final:Record<string,unknown>;cerrador:{nombre:string}|null;aprobador:{nombre:string}|null}
 const soles=(v:number)=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(Number(v||0))
 
 export default function CierreDiario(){
- const {showToast}=useToast();const hoy=new Date().toISOString().slice(0,10);const [fecha,setFecha]=useState(hoy);const [preview,setPreview]=useState<Preview|null>(null);const [cierres,setCierres]=useState<Cierre[]>([]);const [observacion,setObservacion]=useState('');const [firma,setFirma]=useState('');const [obsAprobacion,setObsAprobacion]=useState('');const [loading,setLoading]=useState(true);const [cerrando,setCerrando]=useState(false);const [aprobando,setAprobando]=useState(false)
+ const {showToast}=useToast();const hoy=getBusinessDateLima();const [fecha,setFecha]=useState(hoy);const [preview,setPreview]=useState<Preview|null>(null);const [cierres,setCierres]=useState<Cierre[]>([]);const [observacion,setObservacion]=useState('');const [firma,setFirma]=useState('');const [obsAprobacion,setObsAprobacion]=useState('');const [loading,setLoading]=useState(true);const [cerrando,setCerrando]=useState(false);const [aprobando,setAprobando]=useState(false)
  const cargar=async()=>{setLoading(true);const [p,c]=await Promise.all([supabase.rpc('previsualizar_cierre_diario',{p_fecha:fecha}),supabase.from('cierres_diarios').select('id,fecha,total_ventas,cantidad_ventas,efectivo,digital,otros_pagos,total_reembolsos,diferencia_cajas,cajas_cerradas,ordenes_abiertas,stock_critico,observacion,closed_at,estado_aprobacion,aprobado_at,firma_responsable,observacion_aprobacion,diferencia_critica,conciliaciones_pendientes,reporte_final,cerrador:staff!cierres_diarios_cerrado_por_fkey(nombre),aprobador:staff!cierres_diarios_aprobado_por_fkey(nombre)').order('fecha',{ascending:false}).limit(60)]);if(p.error||c.error)showToast('No se pudo cargar el cierre diario','error');setPreview((p.data as Preview|null)||null);setCierres((c.data as unknown as Cierre[])||[]);setLoading(false)}
  useEffect(()=>{cargar()},[fecha])
  const actual=useMemo(()=>cierres.find(c=>c.fecha===fecha)||null,[cierres,fecha])

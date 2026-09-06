@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Boxes, CalendarDays, CheckCircle2, Clock3, FileCheck2, RefreshCw, ShoppingCart, Trash2, UserCheck, Users, Wallet, Wrench, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
+import { getBusinessDateLima } from '../lib/businessDate'
 
 interface DashboardData {
   fecha: string
@@ -172,7 +173,7 @@ export default function DashboardAdmin() {
 }
 
 function ModalJustificar({ personal, mes, onClose, onSaved }: { personal: AsistenciaMes[]; mes: string; onClose: () => void; onSaved: () => void }) {
-  const hoy = new Date().toISOString().slice(0, 10)
+  const hoy = getBusinessDateLima()
   const fechaInicial = hoy.startsWith(mes) ? hoy : `${mes}-01`
   const [staffId, setStaffId] = useState(personal[0]?.staff_id || '')
   const [fecha, setFecha] = useState(fechaInicial)

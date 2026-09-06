@@ -21,6 +21,7 @@ export interface VentaPendiente {
   locationId: string | null
   cajeroId: string | null
   comprobante: DatosComprobante
+  ordenServicioId: string | null
   createdAt: string
   estado: SyncEstado
   intentos: number
@@ -308,6 +309,9 @@ export async function registrarVenta(v: {
   cajeroId: string | null
   cashSessionId: string | null
   comprobante?: DatosComprobante
+  ordenServicioId?: string | null
+  occurredAt?: string
+  offlineOrigin?: boolean
 }): Promise<Sale> {
   // Ventas encoladas antes de agregar comprobantes electrónicos no tienen este campo:
   // se tratan como boleta sin datos de cliente (mismo comportamiento que antes de Nubefact).
@@ -335,6 +339,9 @@ export async function registrarVenta(v: {
     p_comprobante_cliente_num_doc: c?.clienteNumDoc ?? null,
     p_comprobante_cliente_denominacion: c?.clienteDenominacion ?? null,
     p_comprobante_cliente_direccion: c?.clienteDireccion ?? null,
+    p_occurred_at: v.occurredAt ?? null,
+    p_offline_origin: v.offlineOrigin ?? false,
+    p_orden_servicio_id: v.ordenServicioId ?? null,
   })
   if (error) {
     throw new ErrorRegistroVenta(error.message || 'No se pudo registrar la venta', !!error.code)
@@ -402,7 +409,7 @@ export async function sincronizarVentasPendientes(forzarAgotadas = false): Promi
       if (v.id === undefined) continue
       await marcarEstado(v.id, 'SYNCING')
       try {
-        await registrarVenta(v)
+        await registrarVenta({ ...v, occurredAt: v.createdAt, offlineOrigin: true })
         await db.delete('ventas_pendientes', v.id)
         ok++
       } catch (e) {
@@ -423,7 +430,7 @@ export async function reintentarVentaManual(id: number): Promise<boolean> {
   if (!v) return false
   await marcarEstado(id, 'SYNCING')
   try {
-    await registrarVenta(v)
+    await registrarVenta({ ...v, occurredAt: v.createdAt, offlineOrigin: true })
     await db.delete('ventas_pendientes', id)
     return true
   } catch (e) {

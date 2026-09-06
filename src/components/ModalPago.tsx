@@ -89,6 +89,7 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
     const ventaBase = {
       clientTransactionId, cart, subtotal, impuesto, total, pagos,
       clienteId, clienteDoc: null, cashSessionId, locationId, cajeroId,
+      ordenServicioId: ordenSel?.id ?? null,
       comprobante: nubefactActivo ? {
         tipoComprobante,
         clienteTipoDoc: (tipoComprobante === 'factura' ? 'ruc' : docCliente ? 'dni' : null) as TipoDocumentoCliente | null,
@@ -100,7 +101,6 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
     try {
       if (!online) throw new ErrorRegistroVenta('offline', false)
       const sale: Sale = await registrarVentaRPC(ventaBase)
-      if (ordenSel) await supabase.from('ordenes_servicio').update({ venta_id: sale.id }).eq('id', ordenSel.id)
       onConfirm({ saleId: sale.id, numero: sale.numero, fecha: sale.fecha, cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
     } catch (e) {
       // esErrorDeServidor = el request SÍ llegó al backend y fue rechazado por una

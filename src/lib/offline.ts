@@ -32,6 +32,7 @@ export interface CarritoActivo {
   key: string
   cart: CartItem[]
   savedAt: string
+  cartTransactionId?: string
 }
 
 // Cada cajero tiene su propia clave (en vez de una fija 'actual') para que dos
@@ -173,6 +174,7 @@ export function mapVarianteRow(r: Record<string, unknown>): ProductVariant {
       sku: r.producto_sku,
       precio_base: Number(r.producto_precio),
       imagen_url: r.producto_imagen,
+      control_serial: !!r.producto_control_serial,
     } as unknown as ProductVariant['product'],
     modelo: r.modelo_marca ? ({ marca: r.modelo_marca, modelo: r.modelo_modelo } as unknown as ProductVariant['modelo']) : null,
   }
@@ -256,14 +258,14 @@ export async function marcarSyncCatalogoCompleta() {
 // Carrito activo (recuperación tras cierre inesperado del navegador)
 // ============================================================
 
-export async function guardarCarritoActivo(cart: CartItem[], cajeroId: string | null) {
+export async function guardarCarritoActivo(cart: CartItem[], cajeroId: string | null, cartTransactionId?: string) {
   const db = await getDB()
   const key = claveCarrito(cajeroId)
   if (cart.length === 0) {
     await db.delete('carrito_activo', key)
     return
   }
-  await db.put('carrito_activo', { key, cart, savedAt: new Date().toISOString() } satisfies CarritoActivo)
+  await db.put('carrito_activo', { key, cart, savedAt: new Date().toISOString(), cartTransactionId } satisfies CarritoActivo)
 }
 
 export async function obtenerCarritoActivo(cajeroId: string | null): Promise<CarritoActivo | null> {

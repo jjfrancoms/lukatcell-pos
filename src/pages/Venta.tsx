@@ -13,6 +13,7 @@ import { useToast } from '../lib/toast'
 import type { ProductVariant, CartItem, PagoDetalle } from '../types'
 import ReciboVenta from '../components/ReciboVenta'
 import ModalPago from '../components/ModalPago'
+import SelectorSeriales from '../components/SelectorSeriales'
 
 interface Categoria { id: string; nombre: string }
 const catIcons: Record<string, any> = {
@@ -44,15 +45,21 @@ export default function Venta() {
   const [limiteDescuento, setLimiteDescuento] = useState(isAdmin ? 100 : Number(localStorage.getItem('lukatcell_descuento_max_pct') || 0))
   const [preparandoCobro, setPreparandoCobro] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [recuperarDisponible, setRecuperarDisponible] = useState<{ cart: CartItem[]; savedAt: string } | null>(null)
+  const [recuperarDisponible, setRecuperarDisponible] = useState<{ cart: CartItem[]; savedAt: string; cartTransactionId?: string } | null>(null)
   const [recibo, setRecibo] = useState<{ saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null; cajeroNombre: string | null } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+  // Un mismo id de carrito para todo su ciclo de vida: se usa tanto para
+  // reservar/soltar IMEI (así dos pestañas del mismo cajero no se pisan
+  // reservas del mismo producto) como client_transaction_id de la venta
+  // final — se regenera solo cuando el carrito queda vacío.
+  const [cartTransactionId, setCartTransactionId] = useState<string>(() => crypto.randomUUID())
+  const [seleccionandoSerial, setSeleccionandoSerial] = useState<ProductVariant | null>(null)
 
   useEffect(() => {
     Promise.all([
       supabase.from('categorias').select('id, nombre').order('nombre'),
       supabase.rpc('obtener_favoritos'),
-      supabase.from('product_variants').select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)'),
+      supabase.from('product_variants').select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url, control_serial), modelo:modelos_celular(marca, modelo)'),
     ]).then(([catRes, favRes, allRes]) => {
       const cats = catRes.data || []
       const favs = (favRes.data || []).map(mapVarianteRow)
@@ -97,9 +104,9 @@ export default function Venta() {
   // Persistir el carrito activo en IndexedDB (debounced) para poder recuperarlo
   useEffect(() => {
     if (!staff?.id) return
-    const t = setTimeout(() => { guardarCarritoActivo(cart, staff.id) }, 300)
+    const t = setTimeout(() => { guardarCarritoActivo(cart, staff.id, cartTransactionId) }, 300)
     return () => clearTimeout(t)
-  }, [cart, staff?.id])
+  }, [cart, staff?.id, cartTransactionId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -158,7 +165,7 @@ export default function Venta() {
     }
     if (catId === 'all') {
       const { data } = await supabase.from('product_variants')
-        .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url), modelo:modelos_celular(marca, modelo)')
+        .select('id, product_id, color, modelo_celular_id, precio_override, codigo_barras, product:products(nombre, sku, precio_base, imagen_url, control_serial), modelo:modelos_celular(marca, modelo)')
         .limit(60)
       setResults(((data as any[]) || []).map((r) => ({ ...r, product: r.product, modelo: r.modelo })))
     } else {
@@ -168,6 +175,11 @@ export default function Venta() {
   }
 
   const agregarAlCarrito = (v: ProductVariant) => {
+    if (v.product?.control_serial) {
+      if (!online) { showToast('Este producto requiere conexión para seleccionar su IMEI/serie', 'error'); return }
+      setSeleccionandoSerial(v)
+      return
+    }
     const precio = v.precio_override ?? (v.product as any)?.precio_base ?? 0
     setCart((prev) => {
       const e = prev.find((i) => i.variant.id === v.id)
@@ -176,10 +188,29 @@ export default function Venta() {
     })
   }
 
+  const confirmarSeleccionSerial = (serialIds: string[]) => {
+    const v = seleccionandoSerial
+    if (!v) return
+    const precio = v.precio_override ?? (v.product as any)?.precio_base ?? 0
+    setCart((prev) => {
+      const e = prev.find((i) => i.variant.id === v.id)
+      if (e) return prev.map((i) => i.variant.id === v.id ? { ...i, cantidad: serialIds.length, serialIds } : i)
+      return [...prev, { variant: v, cantidad: serialIds.length, precio_unitario: precio, descuento: 0, serialIds }]
+    })
+    setSeleccionandoSerial(null)
+  }
+
   const updQty = (vid: string, c: number) => { if (c >= 1) setCart((p) => p.map((i) => i.variant.id === vid ? { ...i, cantidad: c } : i)) }
   const del = (vid: string) => {
     const item = cart.find((i) => i.variant.id === vid)
     setCart((p) => p.filter((i) => i.variant.id !== vid))
+    if (item?.variant.product?.control_serial) {
+      // Se libera la reserva de inmediato: "Deshacer" no aplica aquí (el IMEI
+      // ya no está garantizado disponible), así que no se ofrece esa acción.
+      supabase.rpc('liberar_seriales_carrito', { p_variant_id: vid, p_client_transaction_id: cartTransactionId })
+      if (item) showToast(`${item.variant.product?.nombre ?? 'Producto'} eliminado`, 'info')
+      return
+    }
     if (item) showToast(`${item.variant.product?.nombre ?? 'Producto'} eliminado`, 'info', {
       label: 'Deshacer', onClick: () => setCart((p) => p.some((i) => i.variant.id === vid) ? p : [...p, item]),
     })
@@ -213,6 +244,10 @@ export default function Venta() {
     if (!recuperarDisponible) return
     setCart(recuperarDisponible.cart)
     setDescuentosManuales(Object.fromEntries(recuperarDisponible.cart.map((i) => [i.variant.id, Number(i.descuento || 0)])))
+    // Recuperar el mismo cartTransactionId es lo que mantiene válidas las
+    // reservas de IMEI ya hechas para ese carrito (si se generara uno nuevo,
+    // el backend ya no las reconocería como suyas al cobrar).
+    if (recuperarDisponible.cartTransactionId) setCartTransactionId(recuperarDisponible.cartTransactionId)
     setRecuperarDisponible(null)
     showToast('Venta recuperada', 'success')
   }
@@ -225,6 +260,10 @@ export default function Venta() {
     if (!cart.length) return
     if (!online) {
       if (cupon.trim()) { showToast('Los cupones requieren conexión', 'error'); return }
+      if (cart.some((i) => i.variant.product?.control_serial)) {
+        showToast('Hay un producto con IMEI/serie en el carrito: se requiere conexión para venderlo (no se puede encolar sin conexión)', 'error')
+        return
+      }
       setShowPago(true); setShowCart(false); return
     }
     setPreparandoCobro(true)
@@ -358,12 +397,19 @@ export default function Venta() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-white truncate">{item.variant.product?.nombre}</p>
                       <p className="text-xs text-gray-500">S/ {item.precio_unitario.toFixed(2)}{item.descuento > 0 && <span className="text-orange-400 ml-1">→ {pf.toFixed(2)}</span>}</p>
+                      {item.variant.product?.control_serial && (
+                        <p className="text-[11px] text-cyan-400 truncate">IMEI/serie seleccionado ({item.serialIds?.length ?? 0})</p>
+                      )}
                     </div>
-                    <div className="flex items-center bg-[#0d1117] rounded-lg border border-[#30363d]">
-                      <button onClick={() => updQty(item.variant.id, item.cantidad - 1)} className="p-1.5 text-gray-400 hover:text-white" aria-label="Restar cantidad"><Minus size={14} /></button>
-                      <span className="px-1.5 text-white text-sm font-semibold min-w-[24px] text-center">{item.cantidad}</span>
-                      <button onClick={() => updQty(item.variant.id, item.cantidad + 1)} className="p-1.5 text-gray-400 hover:text-white" aria-label="Sumar cantidad"><Plus size={14} /></button>
-                    </div>
+                    {item.variant.product?.control_serial ? (
+                      <button onClick={() => setSeleccionandoSerial(item.variant)} className="text-[11px] font-semibold text-cyan-400 border border-cyan-500/40 rounded-lg px-2 py-1.5 hover:bg-cyan-500/10 whitespace-nowrap">Editar IMEI</button>
+                    ) : (
+                      <div className="flex items-center bg-[#0d1117] rounded-lg border border-[#30363d]">
+                        <button onClick={() => updQty(item.variant.id, item.cantidad - 1)} className="p-1.5 text-gray-400 hover:text-white" aria-label="Restar cantidad"><Minus size={14} /></button>
+                        <span className="px-1.5 text-white text-sm font-semibold min-w-[24px] text-center">{item.cantidad}</span>
+                        <button onClick={() => updQty(item.variant.id, item.cantidad + 1)} className="p-1.5 text-gray-400 hover:text-white" aria-label="Sumar cantidad"><Plus size={14} /></button>
+                      </div>
+                    )}
                     <p className="w-14 text-right text-sm font-bold text-cyan-400">{(pf * item.cantidad).toFixed(2)}</p>
                     <button onClick={() => setDescItem(descItem === item.variant.id ? null : item.variant.id)} className="text-gray-500 hover:text-orange-400" aria-label="Aplicar descuento"><Percent size={13} /></button>
                     <button onClick={() => del(item.variant.id)} className="text-gray-500 hover:text-red-400" aria-label="Eliminar producto"><Trash2 size={13} /></button>
@@ -403,10 +449,12 @@ export default function Venta() {
         <ModalPago total={total} subtotal={subtotal} impuesto={impuesto} cart={cart} online={online}
           nubefactActivo={config.nubefact_activo} culqiActivo={config.culqi_activo} permitirVincularOrden
           locationId={staff?.location_id ?? null} cajeroId={staff?.id ?? null} cashSessionId={cashSessionId}
+          cartTransactionId={cartTransactionId}
           onClose={() => setShowPago(false)}
           onConfirm={(res) => {
             const codigoUsado = cupon.trim()
             setCart([]); setDescuentosManuales({}); setCupon(''); setPromoAplicada(null); setShowPago(false); setShowCart(false)
+            setCartTransactionId(crypto.randomUUID())
             if (staff?.id) borrarCarritoActivo(staff.id)
             if (res) {
               setRecibo({ ...res, cajeroNombre: staff?.nombre ?? null })
@@ -414,6 +462,12 @@ export default function Venta() {
               else if (codigoUsado && online) supabase.rpc('registrar_uso_cupon', { p_codigo: codigoUsado, p_sale_id: res.saleId }).then(({ error }) => { if (error) showToast('Venta registrada, pero no se pudo contabilizar el uso del cupón', 'error') })
             }
           }} />
+      )}
+      {seleccionandoSerial && (
+        <SelectorSeriales variantId={seleccionandoSerial.id} nombreProducto={seleccionandoSerial.product?.nombre ?? 'Producto'}
+          cartTransactionId={cartTransactionId}
+          seleccionInicial={cart.find((i) => i.variant.id === seleccionandoSerial.id)?.serialIds ?? []}
+          onConfirm={confirmarSeleccionSerial} onClose={() => setSeleccionandoSerial(null)} />
       )}
       {recibo && <ReciboVenta {...recibo} autoImprimir={config.auto_imprimir_ticket} onClose={() => setRecibo(null)} />}
     </div>

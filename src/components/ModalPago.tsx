@@ -8,10 +8,10 @@ import PagoDigitalCulqi from './PagoDigitalCulqi'
 
 export interface ResultadoVenta { saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null }
 
-export default function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, clienteInicial, titulo, permitirVincularOrden, onClose, onConfirm }: {
+export default function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, clienteInicial, titulo, permitirVincularOrden, cartTransactionId: cartTransactionIdProp, onClose, onConfirm }: {
   total: number; subtotal: number; impuesto: number; cart: CartItem[]; online: boolean; nubefactActivo: boolean; culqiActivo: boolean
   locationId: string | null; cajeroId: string | null; cashSessionId: string | null
-  clienteInicial?: Cliente | null; titulo?: string; permitirVincularOrden?: boolean
+  clienteInicial?: Cliente | null; titulo?: string; permitirVincularOrden?: boolean; cartTransactionId?: string
   onClose: () => void; onConfirm: (r: ResultadoVenta | null) => void
 }) {
   const [mixto, setMixto] = useState(false)
@@ -35,9 +35,13 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
   // dentro de "Pago mixto" todavía) — requiere QR real con confirmación por webhook,
   // así que sin conexión no se puede ofrecer (no hay forma de verificar un pago real).
   const pagoDigitalDisponible = culqiActivo && online && !mixto && (metodo === 'yape' || metodo === 'plin')
-  // Generado UNA vez al abrir el modal y reutilizado en todos los reintentos: garantiza
-  // que un doble clic o un timeout de red nunca creen dos ventas (idempotencia real vive en el backend).
-  const [clientTransactionId] = useState(() => crypto.randomUUID())
+  // Si el carrito trae su propio id (Venta.tsx), se reutiliza: es el mismo que
+  // ya se usó para reservar IMEI/serie, así que la venta consume esas mismas
+  // reservas. Si no viene (p.ej. cobro de orden de taller sin carrito de
+  // productos serializados), se genera uno aquí como antes. En ambos casos
+  // se reutiliza en todos los reintentos: un doble clic o un timeout de red
+  // nunca crean dos ventas (idempotencia real vive en el backend).
+  const [clientTransactionId] = useState(() => cartTransactionIdProp ?? crypto.randomUUID())
   const vuelto = metodo === 'efectivo' ? calcularVuelto(Number(recibido || 0), total) : 0
 
   useEffect(() => {
@@ -109,7 +113,16 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
       // roto, timeout) se trata como desconexión y se encola — más confiable que
       // adivinar por el texto del error, que varía entre navegadores.
       const esErrorDeServidor = e instanceof ErrorRegistroVenta && e.esErrorDeServidor
-      if (!esErrorDeServidor) {
+      // Un producto con IMEI/serie nunca se encola sin conexión: su reserva
+      // vive en el servidor y no hay forma segura de garantizar aquí, sin
+      // conexión, que ese IMEI concreto siga disponible cuando sincronice
+      // horas después (Venta.tsx ya bloquea llegar aquí en este caso; esto
+      // es la segunda capa de defensa por si esta pantalla se usa desde otro
+      // flujo o la conexión se cae a mitad del cobro).
+      const tieneSerializado = cart.some((i) => i.variant.product?.control_serial)
+      if (!esErrorDeServidor && tieneSerializado) {
+        setError('Se perdió la conexión y este carrito tiene un producto con IMEI/serie: no se puede completar sin conexión. Recupera la conexión e intenta de nuevo.')
+      } else if (!esErrorDeServidor) {
         await queueVenta({ ...ventaBase, createdAt: new Date().toISOString() })
         onConfirm({ saleId: 'pendiente-sync', numero: null, fecha: new Date().toISOString(), cart, subtotal, impuesto, total, pagos, clienteNombre: clienteSel?.nombre ?? null })
       } else {

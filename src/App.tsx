@@ -6,6 +6,7 @@ import { ConfigProvider } from './lib/config'
 import Layout from './components/Layout'
 import MFAGate from './components/MFAGate'
 import Login from './pages/Login'
+import SubirFotoQR from './pages/SubirFotoQR'
 import Venta from './pages/Venta'
 import Caja from './pages/Caja'
 import Inventario from './pages/Inventario'
@@ -62,6 +63,7 @@ function VentaRoute() { const { jornadaActiva, cashSessionId } = useAuth(); if (
 export default function App() {
   return <AuthProvider><ConfigProvider><ToastProvider><BrowserRouter><Routes>
     <Route path="/login" element={<Login />} />
+    <Route path="/subir-foto/:id" element={<SubirFotoQR />} />
     <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
       <Route index element={<VentaRoute />} />
       <Route path="jornada" element={<MiJornada />} />

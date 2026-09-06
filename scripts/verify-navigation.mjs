@@ -11,7 +11,7 @@ const layout = read('src/components/Layout.tsx')
 const destinations = [...layout.matchAll(/to:\s*'([^']+)'/g)].map((match) => match[1])
 const protectedRoutes = [...app.matchAll(/path="([^"]+)"/g)]
   .map((match) => match[1].startsWith('/') ? match[1] : `/${match[1]}`)
-  .filter((path) => path !== '/login')
+  .filter((path) => path !== '/login' && path !== '/subir-foto/:id')
 
 assert(layout.includes("label:'Inicio / Dashboard'") && layout.includes("label:'Nueva venta'"), 'Dashboard y Nueva venta son accesos principales')
 assert(layout.includes("label:'Caja'") && layout.includes("label:'Inventario'") && layout.includes("label:'Clientes'"), 'Caja, Inventario y Clientes son accesos principales')

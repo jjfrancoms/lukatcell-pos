@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock3, LogIn, LogOut, RefreshCw, Users } from 'lucide-react'
+import { Clock3, LogIn, LogOut, RefreshCw, Users, Undo2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
@@ -40,6 +40,8 @@ export default function MiJornada() {
   const { showToast } = useToast()
   const [procesando, setProcesando] = useState(false)
   const [personal, setPersonal] = useState<PersonalHoy[]>([])
+  const [reabriendo, setReabriendo] = useState(false)
+  const [motivoReapertura, setMotivoReapertura] = useState('')
   const esDescanso = Boolean(staff && !isAdmin && !jornada?.turno_id && !jornada?.entrada)
   const esPermiso = Boolean(!isAdmin && esEstadoPermiso(jornada?.estado) && !jornada?.entrada)
 
@@ -71,6 +73,18 @@ export default function MiJornada() {
     if (error) return showToast(error, 'error')
     showToast('Salida registrada', 'success')
     cargarPersonal()
+  }
+
+  const reabrirJornada = async () => {
+    if (!jornada?.asistencia_id) return
+    if (motivoReapertura.trim().length < 3) return showToast('Escribe un motivo (mínimo 3 caracteres)', 'error')
+    setProcesando(true)
+    const { error } = await supabase.rpc('reabrir_asistencia', { p_asistencia_id: jornada.asistencia_id, p_motivo: motivoReapertura.trim() })
+    setProcesando(false)
+    if (error) return showToast(error.message, 'error')
+    setReabriendo(false); setMotivoReapertura('')
+    showToast('Jornada reabierta', 'success')
+    refreshJornada(); cargarPersonal()
   }
 
   const estadoEspecial = esPermiso ? permisoLabel(jornada?.estado) : esDescanso ? 'Día de descanso' : null
@@ -128,7 +142,29 @@ export default function MiJornada() {
               <LogOut size={17} /> {cashSessionId ? 'Cierra caja para salir' : procesando ? 'Registrando...' : 'Registrar salida'}
             </button>
           )}
-          {jornada?.entrada && jornada?.salida && <p className="text-sm text-gray-400">Jornada finalizada por hoy.</p>}
+          {jornada?.entrada && jornada?.salida && !reabriendo && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <p className="text-sm text-gray-400">Jornada finalizada por hoy.</p>
+              {isAdmin && (
+                <button onClick={() => setReabriendo(true)} className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-400 hover:text-cyan-300">
+                  <Undo2 size={13} /> ¿Marcaste salida por error? Reabrir jornada
+                </button>
+              )}
+            </div>
+          )}
+          {reabriendo && (
+            <div className="bg-[#0d1117] border border-[#30363d] rounded-xl p-4 max-w-md">
+              <label className="text-xs text-gray-500 font-semibold">Motivo de la corrección</label>
+              <input autoFocus value={motivoReapertura} onChange={(e) => setMotivoReapertura(e.target.value)} placeholder="Ej. marqué salida sin querer"
+                className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-2 mt-1 text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => { setReabriendo(false); setMotivoReapertura('') }} className="flex-1 bg-[#21262d] border border-[#30363d] text-gray-300 font-semibold py-2 rounded-lg text-sm">Cancelar</button>
+                <button onClick={reabrirJornada} disabled={procesando} className="flex-1 bg-gradient-to-r from-cyan-500 to-cyan-600 disabled:opacity-40 text-black font-bold py-2 rounded-lg text-sm">
+                  {procesando ? 'Guardando...' : 'Confirmar'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

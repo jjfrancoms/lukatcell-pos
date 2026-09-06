@@ -4,8 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
 
 interface Venta { id: string; numero: number; fecha: string; total: number; estado: string; cajero: { nombre: string } | null }
-interface ItemVenta { id: string; variant_id: string; cantidad: number; subtotal: number; producto_nombre_snapshot: string | null }
+interface ItemVenta { id: string; variant_id: string; cantidad: number; subtotal: number; producto_nombre_snapshot: string | null; variant?: { product?: { control_serial?: boolean } | null } | null }
 interface DevItem { sale_item_id: string; cantidad: number }
+interface SerialVendido { sale_item_id: string; serial_id: string; serial: { serial_number: string; estado: string } | null }
 interface Devolucion { id: string; sale_id: string; tipo: string; motivo: string; monto: number; estado: string; reembolso_estado: string; reembolso_metodo: string | null; reembolso_referencia: string | null; created_at: string; venta: { numero: number } | null; creador: { nombre: string } | null }
 interface Caja { id: string; cajero: { nombre: string } | null; monto_inicial: number }
 
@@ -69,20 +70,55 @@ function ModalDevolucion({venta,onClose,onSaved}:{venta:Venta;onClose:()=>void;o
   const [items,setItems]=useState<ItemVenta[]>([])
   const [previas,setPrevias]=useState<Record<string,number>>({})
   const [cantidades,setCantidades]=useState<Record<string,number>>({})
+  const [serialesPorItem,setSerialesPorItem]=useState<Record<string,SerialVendido[]>>({})
+  const [seleccionSeriales,setSeleccionSeriales]=useState<Record<string,string[]>>({})
   const [motivo,setMotivo]=useState('')
   const [loading,setLoading]=useState(true)
   const [guardando,setGuardando]=useState(false)
   const [error,setError]=useState('')
 
   useEffect(()=>{Promise.all([
-    supabase.from('sale_items').select('id,variant_id,cantidad,subtotal,producto_nombre_snapshot').eq('sale_id',venta.id),
+    supabase.from('sale_items').select('id,variant_id,cantidad,subtotal,producto_nombre_snapshot,variant:product_variants(product:products(control_serial))').eq('sale_id',venta.id),
     supabase.from('devolucion_items').select('sale_item_id,cantidad,devolucion:devoluciones!inner(sale_id,estado)').eq('devolucion.sale_id',venta.id).eq('devolucion.estado','completada'),
-  ]).then(([i,d])=>{setItems((i.data as ItemVenta[])||[]);const p:Record<string,number>={};((d.data as unknown as DevItem[])||[]).forEach(x=>p[x.sale_item_id]=(p[x.sale_item_id]||0)+x.cantidad);setPrevias(p);setLoading(false)})},[venta.id])
+  ]).then(async([i,d])=>{
+    const its=(i.data as unknown as ItemVenta[])||[]
+    setItems(its)
+    const p:Record<string,number>={};((d.data as unknown as DevItem[])||[]).forEach(x=>p[x.sale_item_id]=(p[x.sale_item_id]||0)+x.cantidad);setPrevias(p)
+    const serializados=its.filter(x=>x.variant?.product?.control_serial)
+    if(serializados.length){
+      const {data:sv}=await supabase.from('sale_item_serials').select('sale_item_id,serial_id,serial:product_serials(serial_number,estado)').in('sale_item_id',serializados.map(x=>x.id))
+      const porItem:Record<string,SerialVendido[]>={};((sv as unknown as SerialVendido[])||[]).forEach(x=>{(porItem[x.sale_item_id]=porItem[x.sale_item_id]||[]).push(x)});setSerialesPorItem(porItem)
+    }
+    setLoading(false)
+  })},[venta.id])
 
-  const payload=items.map(i=>({sale_item_id:i.id,cantidad:Math.max(0,Number(cantidades[i.id]||0))})).filter(i=>i.cantidad>0)
+  const toggleSerial=(itemId:string,serialId:string,max:number)=>setSeleccionSeriales(s=>{
+    const actual=s[itemId]||[]
+    const next=actual.includes(serialId)?actual.filter(x=>x!==serialId):(actual.length<max?[...actual,serialId]:actual)
+    return {...s,[itemId]:next}
+  })
+
+  const payload=items.map(i=>{
+    const esSerializado=!!i.variant?.product?.control_serial
+    const cantidad=esSerializado?(seleccionSeriales[i.id]?.length||0):Math.max(0,Number(cantidades[i.id]||0))
+    return cantidad>0?(esSerializado?{sale_item_id:i.id,cantidad,serial_ids:seleccionSeriales[i.id]}:{sale_item_id:i.id,cantidad}):null
+  }).filter((x):x is {sale_item_id:string;cantidad:number;serial_ids?:string[]}=>x!==null)
   const guardar=async()=>{setError('');if(!payload.length||motivo.trim().length<5){setError('Selecciona al menos una unidad e ingresa un motivo');return}setGuardando(true);const{error:e}=await supabase.rpc('registrar_devolucion',{p_sale_id:venta.id,p_items:payload,p_motivo:motivo.trim()});setGuardando(false);if(e){setError(e.message);return}onSaved()}
 
-  return <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center"><div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl md:rounded-2xl border border-[#30363d] bg-[#161b22] p-5"><button onClick={onClose} className="absolute right-4 top-4 text-gray-500"><X size={19}/></button><h3 className="font-bold text-white">Devolver venta #{venta.numero}</h3><p className="text-xs text-gray-500 mb-4">Selecciona únicamente las unidades que físicamente regresan a inventario.</p>{loading?<p className="py-6 text-center text-xs text-gray-500">Cargando líneas...</p>:<div className="space-y-2">{items.map(i=>{const disponible=Math.max(0,i.cantidad-(previas[i.id]||0));return <div key={i.id} className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-white">{i.producto_nombre_snapshot||'Producto'}</p><p className="text-[10px] text-gray-600">Vendido {i.cantidad} · devuelto {previas[i.id]||0} · disponible {disponible}</p></div><input type="number" min={0} max={disponible} value={cantidades[i.id]||0} onChange={e=>setCantidades(c=>({...c,[i.id]:Math.min(disponible,Math.max(0,Number(e.target.value)||0))}))} className="w-20 rounded-lg border border-[#30363d] bg-[#161b22] px-2 py-1.5 text-sm text-white"/></div>})}</div>}<label className="block text-xs font-semibold text-gray-500 mt-4">Motivo</label><textarea value={motivo} onChange={e=>setMotivo(e.target.value)} rows={3} className="mt-1 w-full resize-none rounded-xl border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-white" placeholder="Producto defectuoso, cambio solicitado..."/>{error&&<p className="mt-3 rounded-lg bg-red-500/10 p-2 text-xs text-red-400">{error}</p>}<div className="flex gap-2 mt-5"><button onClick={onClose} className="flex-1 rounded-xl border border-[#30363d] py-2.5 text-sm text-gray-300">Cancelar</button><button onClick={guardar} disabled={guardando||!payload.length||motivo.trim().length<5} className="flex-1 rounded-xl bg-cyan-500 py-2.5 text-sm font-bold text-black disabled:opacity-40">{guardando?'Registrando...':'Registrar devolución'}</button></div></div></div>
+  return <div className="fixed inset-0 z-[70] bg-black/70 backdrop-blur-sm flex items-end md:items-center justify-center"><div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-t-2xl md:rounded-2xl border border-[#30363d] bg-[#161b22] p-5"><button onClick={onClose} className="absolute right-4 top-4 text-gray-500"><X size={19}/></button><h3 className="font-bold text-white">Devolver venta #{venta.numero}</h3><p className="text-xs text-gray-500 mb-4">Selecciona únicamente las unidades que físicamente regresan a inventario.</p>{loading?<p className="py-6 text-center text-xs text-gray-500">Cargando líneas...</p>:<div className="space-y-2">{items.map(i=>{
+    const disponible=Math.max(0,i.cantidad-(previas[i.id]||0))
+    const esSerializado=!!i.variant?.product?.control_serial
+    if(esSerializado){
+      const seriales=(serialesPorItem[i.id]||[]).filter(s=>s.serial?.estado==='vendido')
+      const sel=seleccionSeriales[i.id]||[]
+      return <div key={i.id} className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3">
+        <p className="text-sm font-semibold text-white">{i.producto_nombre_snapshot||'Producto'}</p>
+        <p className="text-[10px] text-gray-600 mb-2">Vendido {i.cantidad} · devuelto {previas[i.id]||0} · elige el/los IMEI que regresan</p>
+        <div className="space-y-1">{seriales.map(s=><label key={s.serial_id} className="flex items-center gap-2 text-xs text-gray-300"><input type="checkbox" checked={sel.includes(s.serial_id)} onChange={()=>toggleSerial(i.id,s.serial_id,disponible)} className="accent-cyan-500"/>{s.serial?.serial_number}</label>)}{!seriales.length&&<p className="text-[10px] text-gray-600">No hay unidades vendidas pendientes de devolver en esta línea.</p>}</div>
+      </div>
+    }
+    return <div key={i.id} className="rounded-xl border border-[#30363d] bg-[#0d1117] p-3 flex items-center justify-between gap-3"><div><p className="text-sm font-semibold text-white">{i.producto_nombre_snapshot||'Producto'}</p><p className="text-[10px] text-gray-600">Vendido {i.cantidad} · devuelto {previas[i.id]||0} · disponible {disponible}</p></div><input type="number" min={0} max={disponible} value={cantidades[i.id]||0} onChange={e=>setCantidades(c=>({...c,[i.id]:Math.min(disponible,Math.max(0,Number(e.target.value)||0))}))} className="w-20 rounded-lg border border-[#30363d] bg-[#161b22] px-2 py-1.5 text-sm text-white"/></div>
+  })}</div>}<label className="block text-xs font-semibold text-gray-500 mt-4">Motivo</label><textarea value={motivo} onChange={e=>setMotivo(e.target.value)} rows={3} className="mt-1 w-full resize-none rounded-xl border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-white" placeholder="Producto defectuoso, cambio solicitado..."/>{error&&<p className="mt-3 rounded-lg bg-red-500/10 p-2 text-xs text-red-400">{error}</p>}<div className="flex gap-2 mt-5"><button onClick={onClose} className="flex-1 rounded-xl border border-[#30363d] py-2.5 text-sm text-gray-300">Cancelar</button><button onClick={guardar} disabled={guardando||!payload.length||motivo.trim().length<5} className="flex-1 rounded-xl bg-cyan-500 py-2.5 text-sm font-bold text-black disabled:opacity-40">{guardando?'Registrando...':'Registrar devolución'}</button></div></div></div>
 }
 
 function ModalReembolso({devolucion,onClose,onSaved}:{devolucion:Devolucion;onClose:()=>void;onSaved:()=>void}){

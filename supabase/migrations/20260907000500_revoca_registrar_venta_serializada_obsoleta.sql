@@ -1,0 +1,29 @@
+-- ============================================================================
+-- P0.1 bloque 9: auditoría selectiva de SECURITY DEFINER en RPC críticas.
+--
+-- Advisor: 88 funciones SECURITY DEFINER ejecutables por `authenticated`
+-- (esperado — la mayoría legítimamente lo necesita para escribir de forma
+-- atómica across tablas que RLS no puede orquestar). Se auditaron
+-- puntualmente las que modifican ventas/caja/stock/compras/proveedores/
+-- devoluciones/IMEI/promociones/autorizaciones/cierres: todas verifican
+-- auth.uid() → staff activo → rol/puesto/sucursal/ownership antes de
+-- escribir. No se encontró ninguna sin protección interna real, EXCEPTO:
+--
+-- registrar_venta_serializada: confirmada como código MUERTO (el frontend
+-- real, Venta.tsx/ModalPago.tsx, nunca la llama — usa registrar_venta +
+-- SelectorSeriales). Además de no usarse, quedó desactualizada respecto al
+-- hardening de este bloque: llama a reservar_seriales_carrito SIN
+-- client_transaction_id (reintroduciendo el problema de "dos carritos se
+-- pisan un mismo IMEI" que P0.1 bloque 6 acaba de cerrar para el flujo
+-- real), y a registrar_venta sin los parámetros de fecha/offline/orden de
+-- servicio del hardening previo. Seguía siendo ejecutable por cualquier
+-- authenticated vía /rest/v1/rpc/registrar_venta_serializada, un endpoint
+-- que nadie de la UI usa pero que sigue siendo superficie de ataque.
+--
+-- No se elimina la función (podría haber integraciones externas
+-- desconocidas que la usen) — se revoca EXECUTE de authenticated/anon,
+-- que es el remedio que el propio advisor recomienda cuando una función
+-- SECURITY DEFINER no debería ser invocable por usuarios finales.
+-- ============================================================================
+
+revoke all on function public.registrar_venta_serializada(jsonb, jsonb, numeric, numeric, numeric, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text) from public, anon, authenticated;

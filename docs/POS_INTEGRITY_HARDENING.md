@@ -4,14 +4,24 @@ Documento vivo del hardening de integridad/seguridad transaccional iniciado 2026
 Cubre lo implementado, decisiones tomadas, y lo que sigue abierto. Se actualiza a medida
 que avanzan las fases restantes (P1).
 
-## Estado: P0 (integridad) completo y verificado. P1 (operación) pendiente.
+## Estado: P0 CERRADO (pase P0.1 de corrección de regresiones incluido). P1 pendiente.
 
-Todas las correcciones de esta fase fueron probadas con `curl` + JWT real contra la base
-de datos de producción (Supabase), usando una cuenta de staff temporal (`qa_temp_hard@lukatcell.test`,
-staff id `a37c8004-c57e-4eb0-bf71-e1e174415be3`) — no solo introspección SQL — para
-ejercer `auth.uid()`/RLS/triggers tal como los vería un cajero real. Todos los datos de
-prueba (productos, variantes, seriales, ventas, cajas, movimientos) se crearon y
-eliminaron explícitamente después de cada verificación.
+La sección **"P0.1 — Corrección de regresiones y cierre real del hardening"** (más abajo)
+documenta una segunda pasada realizada después de que la primera ronda de P0 (secciones
+1-10 de este documento) se declarara completa: una auditoría independiente encontró que
+varias de esas correcciones no estaban conectadas end-to-end con el frontend, o tenían
+bugs de lógica que las hacían inoperantes en la práctica (ver detalle sección P0.1,
+bloques 1-10). Ese hallazgo es la razón de que el estado ya no diga simplemente "P0
+completo" sin calificación: la sección P0.1 es la que sostiene esa afirmación con
+evidencia verificada bloque por bloque, no la primera pasada por sí sola.
+
+Todas las correcciones de ambas pasadas fueron probadas con `curl` + JWT real contra la
+base de datos de producción (Supabase) — no solo introspección SQL — para ejercer
+`auth.uid()`/RLS/triggers tal como los vería un cajero real. Todos los datos de prueba
+(productos, variantes, seriales, ventas, cajas, movimientos) se crearon con nombres
+identificables (`QA-INTEGRITY-*`) y se limpiaron o desactivaron explícitamente después de
+cada verificación (ver "Residuos de prueba conocidos" en la sección P0.1 para el detalle
+de qué no puede borrarse por diseño y por qué).
 
 ---
 
@@ -328,3 +338,346 @@ punto 6 (bug de `puesto`).
   servicio/baja) desde ahí.
 - Revisar que el equipo de caja entienda el nuevo flujo de ingreso/retiro/gasto en
   `Caja.tsx` antes de depender de él para el arqueo diario.
+
+---
+
+# P0.1 — Corrección de regresiones y cierre real del hardening
+
+Fecha: 2026-09-06/07. Ejecutado tras una auditoría independiente que encontró que varias
+de las correcciones de la sección P0 (arriba) no estaban realmente conectadas end-to-end,
+o tenían bugs de lógica que las neutralizaban en la práctica. Cada bloque se verificó con
+`curl` + JWT real contra producción (proyecto `fbwkclpgnsxuqycazumj`), usando una cuenta
+de staff temporal (`qa_p01@lukatcell.test`, staff id `5b7694df-be37-4e0f-bb7f-d33cb13a470f`,
+promovida temporalmente a `rol='administrador'` para poder escribir catálogo/inventario
+directo por REST donde la RPC no bastaba — ver "Residuos de prueba conocidos" sobre su
+estado final).
+
+## Bloque 1 — Conteo físico concurrente (matemáticamente incorrecto)
+
+**Problema confirmado:** `cerrar_inventario_fisico` aplicaba
+`diferencia = cantidad_contada - cantidad_sistema_snapshot` como delta sobre el stock
+actual. Ejemplo real: snapshot al abrir = 10, venta concurrente de -2 antes de contar
+(stock real = 8), conteo físico = 9 unidades. El sistema calculaba
+`diferencia = 9 - 10 = -1` y aplicaba `8 - 1 = 7` — un resultado matemáticamente
+incorrecto: si al contar físicamente había 9 unidades cuando el sistema esperaba 8 en ese
+instante, la diferencia real es **+1**, no -1.
+
+**Causa raíz:** la fórmula comparaba lo contado contra el snapshot del momento de
+*apertura* del conteo, ignorando los movimientos ocurridos entre la apertura y el
+instante real en que esa línea se contó.
+
+**Solución** (`20260906224923_conteo_fisico_expectativa_por_instante.sql`):
+- `inventario_fisico_items.counted_at timestamptz`, seteado por `registrar_conteo_fisico`
+  en cada conteo.
+- `cerrar_inventario_fisico` reconstruye, por línea, el stock esperado en el instante en
+  que se contó: `esperado_al_contar = cantidad_sistema + sum(inventory_movements entre
+  fecha_inicio del conteo y counted_at)`. La diferencia real es
+  `cantidad_contada - esperado_al_contar`, aplicada como delta sobre `inventory.cantidad`
+  actual (no sobre el snapshot).
+- Verificado end-to-end contra los 4 casos exactos planteados: snapshot 10 sin
+  movimientos → final 9; snapshot 10, venta -2 antes de contar, conteo 9 → diferencia
+  real +1 (coherente, no el -1 anterior); snapshot 10, conteo 10, venta -2 después →
+  final 8; snap(10, venta -2, conteo 8, compra +5 después) → final 13. Reproducido
+  también en `scripts/verify-integrity-invariants.mjs` (Escenario 5, ver Bloque 10).
+- Un resultado negativo se clampa a 0 con nota explícita en el motivo, sin bloquear el
+  cierre de las demás líneas. Diferencia en un producto serializado sigue bloqueando el
+  cierre para reconciliar por IMEI, nunca ajustando la cantidad agregada a ciegas.
+
+## Bloque 2 — `ajustar_stock`: sucursal ajena y actor falso
+
+**Problema confirmado:** `v_location := coalesce(p_location_id, v_staff.location_id)` y
+`coalesce(p_staff_id, v_staff.id)` permitían que un no-admin enviara **cualquier**
+`p_location_id`/`p_staff_id` explícito — la función solo caía al valor por defecto cuando
+el cliente omitía el parámetro, pero nunca rechazaba uno enviado sin autorización. Un
+cajero podía ajustar stock de una sucursal que no era la suya, o atribuir el ajuste a
+otro empleado.
+
+**Solución** (`20260906231547_ajustar_stock_sucursal_y_actor_real.sql`):
+- `p_staff_id` se elimina del parámetro público — el actor sale siempre de
+  `auth.uid() → staff.id`, sin excepción, sin firma alternativa que lo acepte.
+- `p_location_id` para un no-admin debe ser la sucursal propia del staff o una donde
+  tenga `staff_locations.puede_inventario=true` (reutiliza el primitivo multi-sucursal
+  existente, no uno nuevo); admin no tiene esa restricción.
+- Firma anterior (`ajustar_stock(uuid,uuid,int,text,uuid)`) eliminada explícitamente con
+  `drop function` para que PostgREST no quede con dos sobrecargas ambiguas.
+- Verificado: rechazo de stock negativo (curl real, integrado también en
+  `verify-integrity-invariants.mjs`); el escenario "sucursal ajena para un no-admin"
+  específicamente requiere una segunda identidad no-admin real — verificado manualmente
+  con dos cuentas de staff durante el hardening (un admin bypasea la restricción por
+  diseño, así que no se automatiza con una sola cuenta QA admin).
+
+## Bloque 3 — Descuentos, promociones y autorizaciones no llegaban end-to-end
+
+**Problema confirmado:** el backend esperaba `promocion_id`/`autorizacion_id` por línea
+en `sale_items`, pero el frontend solo enviaba `variant_id, cantidad, precio_unitario,
+descuento, subtotal` — nunca el origen del descuento. Además, un bug independiente en
+`validar_linea_venta_catalogo` comprobaba `estado='aprobada' AND consumed_at IS NOT NULL`
+para una autorización, pero `private.consumir_autorizacion` marca `estado='consumida'` al
+consumirla — esa combinación de estados **nunca ocurre simultáneamente**, así que
+absolutamente ninguna autorización de descuento podía usarse en una venta real,
+independientemente de qué enviara el frontend.
+
+**Solución** (`20260906232219_descuentos_autorizacion_end_to_end.sql` +
+`src/types/index.ts`, `src/pages/Venta.tsx`, `src/lib/offline.ts`):
+- `validar_linea_venta_catalogo` corregido a `estado='consumida'` (el bug real que
+  anulaba el flujo completo).
+- `consumir_autorizacion_descuento` cambia de `boolean` a
+  `jsonb {autorizada, autorizacion_id}` — el backend identifica sin ambigüedad qué
+  autorización se consumió, en vez de que el frontend tuviera que inventar o adivinar un
+  ID.
+- `CartItem` gana `promocionId?`, `autorizacionId?`, `descuentoOrigen?:
+  'manual'|'promocion'|'autorizacion'|'ninguno'` — sin usar `any`.
+- `Venta.tsx`: `applyDisc` captura el jsonb de consumo; el remapeo de carrito en
+  `prepararCobro` captura `promocion_id` de `resolver_promociones_carrito` por línea.
+- `offline.ts`: `registrarVenta()` envía `promocion_id`/`autorizacion_id` reales por
+  línea a `registrar_venta`, no solo el monto ya calculado.
+- El backend sigue siendo la fuente de verdad: valida que la autorización pertenezca al
+  cajero autenticado, misma variante, mismo % de descuento, estado `consumida`, no
+  reutilizada por otra línea — el cliente nunca puede inventar un `autorizacion_id` y que
+  el servidor lo acepte sin validar.
+
+## Bloque 4 — Pago a proveedor en efectivo sin caja
+
+**Problema confirmado:** `registrar_pago_proveedor` exige `p_cash_session_id` cuando
+`p_metodo='efectivo'` (hardening previo), pero `CuentasPorPagar.tsx` nunca lo enviaba —
+todo pago en efectivo a proveedor fallaba en producción.
+
+**Solución** (`20260906233406_pago_proveedor_valida_sucursal_caja.sql` +
+`CuentasPorPagar.tsx`):
+- UI: selector de caja (solo sesiones abiertas) cuando el método es efectivo, con la
+  fila de la factura ampliada con `location_id`; el submit se bloquea sin selección; si
+  el método no es efectivo, se envía `null` explícito.
+- Backend: `registrar_pago_proveedor` ahora valida además que
+  `caja.location_id = factura.location_id` — una caja de otra sucursal se rechaza aunque
+  esté abierta y sea del mismo cajero.
+- El `cash_movement` del pago se sigue generando dentro de la misma transacción
+  (rollback atómico si algo falla).
+
+## Bloque 5 — Fecha comercial UTC en vez de America/Lima
+
+**Problema confirmado:** `sales.business_date` (backend) ya calculaba correctamente en
+hora de Lima, pero múltiples pantallas de negocio seguían usando
+`new Date().toISOString().slice(0, 10)` (UTC) para filtros/valores por defecto — el "día"
+cambia ~19:00 hora Perú en vez de medianoche local.
+
+**Solución:** `src/lib/businessDate.ts` (nuevo) —
+`getBusinessDateLima()`/`formatBusinessDateLima()`/`addDaysBusinessDateLima()`/
+`startOfBusinessDayLima()`, usando `Intl.DateTimeFormat('en-CA', {timeZone:
+'America/Lima'})` (Perú no tiene horario de verano, UTC-5 fijo). Reemplazado en
+`CambiosTurno.tsx`, `ReportesAvanzados.tsx`, `MisSolicitudes.tsx`, `PermisosPersonal.tsx`,
+`DashboardAdmin.tsx`, `ConciliacionPagos.tsx`, `CierreDiario.tsx`, `Reportes.tsx` (este
+último tenía además un bug de medianoche-local separado, corregido con
+`startOfBusinessDayLima()`). **No** se tocaron timestamps técnicos (`created_at`,
+`updated_at`, `synced_at`) — solo conceptos de día operativo/comercial.
+`scripts/verify-security.mjs` verifica estáticamente que ninguno de estos 8 archivos
+contenga el patrón UTC crudo.
+
+## Bloque 6 — Reserva manual de IMEI en `/seriales` incompatible con la arquitectura real
+
+**Problema confirmado:** la reserva de IMEI correcta se ancla a
+`client_transaction_id` del carrito (hardening previo), pero `/seriales` seguía
+ofreciendo "Reservar venta" sin ningún carrito real detrás — un flujo huérfano que
+prometía un comportamiento que ya no existía.
+
+**Solución** (`Seriales.tsx` + `20260906235008_seriales_disponibles_excluye_
+reservados.sql`):
+- Eliminados `reservar()`, el botón "Reservar venta", el banner de reserva y el import
+  no usado; `/seriales` queda dedicada a alta, consulta, cuarentena, servicio, baja y
+  trazabilidad — la única forma de reservar para una venta es `SelectorSeriales.tsx`
+  dentro del carrito real.
+- `seriales_disponibles` gana `p_client_transaction_id` opcional y excluye seriales con
+  una reserva viva de OTRO carrito — ya no depende únicamente de que el INSERT falle
+  después con un IMEI ya tomado; `SelectorSeriales.tsx` lo envía siempre.
+
+## Bloque 7 — IGV no validado server-side
+
+**Problema confirmado:** `registrar_venta` validaba aritmética de subtotal/total/pagos,
+pero confiaba en el `p_impuesto` enviado por el cliente sin compararlo contra la
+configuración real del negocio.
+
+**Solución** (`20260906235627_validar_igv_server_side.sql`): `validar_totales_venta_
+diferido` recalcula el impuesto esperado desde `configuracion.igv_activo`/
+`igv_porcentaje` (fuente de verdad única) y lo compara contra lo enviado, preservando la
+semántica de precios existente (IGV incluido vs. separado) — un cliente que envía
+impuesto 0, un valor falso, o un total manipulado, es rechazado server-side.
+
+## Bloque 8 — Reconciliación del historial de migraciones local ↔ Supabase
+
+**Hallazgo confirmado:** las migraciones de hardening se aplicaron primero vía MCP
+(quedando en el historial de Supabase con el timestamp real de aplicación) y se
+escribieron localmente después con un timestamp "de borrador" distinto — `supabase
+migration list` mostraba versiones que no correspondían 1:1 con los nombres de archivo en
+GitHub.
+
+**Resolución:** cada archivo local de la tanda de hardening (P0 original + los 7 nuevos
+de este pase P0.1) fue renombrado (`git mv`, contenido sin tocar) para que su timestamp
+coincida EXACTAMENTE con la versión real registrada en `supabase_migrations.schema_
+migrations`. Tabla de equivalencia para la tanda de hardening (Fase P0 + P0.1):
+
+| Archivo GitHub (actual) | Versión Supabase | Estado |
+|---|---|---|
+| `20260906200849_business_date_and_registrar_venta_hardening.sql` | `20260906200849` | ✅ coincide |
+| `20260906202322_fix_vinculo_autorizacion_descuento.sql` | `20260906202322` | ✅ coincide |
+| `20260906202647_fix_ajustar_stock.sql` | `20260906202647` | ✅ coincide |
+| `20260906203818_fix_null_puesto_bypass.sql` | `20260906203818` | ✅ coincide |
+| `20260906205005_cash_movements_ledger.sql` | `20260906205005` | ✅ coincide |
+| `20260906210423_cierre_caja_con_ventas_offline_pendientes.sql` | `20260906210423` | ✅ coincide |
+| `20260906211444_reservas_imei_por_transaccion.sql` | `20260906211444` | ✅ coincide |
+| `20260906212529_control_serial_en_buscar_variantes.sql` | `20260906212529` | ✅ coincide |
+| `20260906214129_devolucion_anulacion_con_imei.sql` | `20260906214129` | ✅ coincide |
+| `20260906215004_cierre_conteo_fisico_no_pisa_concurrencia.sql` | `20260906215004` | ✅ coincide |
+| `20260906224923_conteo_fisico_expectativa_por_instante.sql` | `20260906224923` | ✅ coincide |
+| `20260906231547_ajustar_stock_sucursal_y_actor_real.sql` | `20260906231547` | ✅ coincide |
+| `20260906232219_descuentos_autorizacion_end_to_end.sql` | `20260906232219` | ✅ coincide |
+| `20260906233406_pago_proveedor_valida_sucursal_caja.sql` | `20260906233406` | ✅ coincide |
+| `20260906235008_seriales_disponibles_excluye_reservados.sql` | `20260906235008` | ✅ coincide |
+| `20260906235627_validar_igv_server_side.sql` | `20260906235627` | ✅ coincide |
+| `20260907000702_revoca_registrar_venta_serializada_obsoleta.sql` | `20260907000702` | ✅ coincide |
+
+**Residual, fuera de alcance de esta pasada:** ~16 migraciones **anteriores** al 2026-09-06
+(rango 2026-08-19 a 2026-08-23, previas a todo este esfuerzo de hardening P0/P0.1) tienen
+el mismo tipo de desfase de timestamp entre el nombre de archivo en GitHub y la versión
+registrada en Supabase. No se tocaron en esta pasada: no forman parte de las migraciones
+de hardening que el usuario pidió reconciliar explícitamente, y renombrarlas a ciegas sin
+verificar el contenido exacto de cada una de las 16 sería precisamente el tipo de "arreglo
+riesgoso" que esta fase prohíbe. **Riesgo real:** un `supabase db push` desde un clon
+limpio del repo intentaría reaplicar esos ~16 archivos con nombres que no coinciden con
+ninguna versión ya registrada, fallando por objetos duplicados. Mitigación actual: no usar
+`supabase db push`; seguir aplicando cambios vía migración nueva + MCP como se ha hecho en
+toda esta pasada. Queda como ítem P1 recomendado: reconciliarlas con `supabase migration
+repair` una por una, verificando antes el contenido exacto de cada archivo contra la
+definición real en producción.
+
+## Bloque 9 — Auditoría selectiva de SECURITY DEFINER
+
+Supabase Advisor reporta `authenticated_security_definer_function_executable` en 87
+funciones (88 antes de este bloque). Se auditaron puntualmente las que modifican
+ventas/caja/stock/compras/proveedores/devoluciones/IMEI/promociones/autorizaciones/
+cierres: todas verifican `auth.uid()` → staff activo → rol/puesto/sucursal/ownership antes
+de escribir. Ninguna quedó sin protección interna real, **excepto** una:
+`registrar_venta_serializada` — código muerto confirmado (Venta.tsx/ModalPago.tsx nunca la
+llaman, usan `registrar_venta` + `SelectorSeriales`), y además desactualizada respecto al
+hardening de IMEI de este mismo pase (llama a `reservar_seriales_carrito` sin
+`client_transaction_id`, reintroduciendo el problema de "dos carritos se pisan un mismo
+IMEI" que el Bloque 6 acaba de cerrar). Seguía siendo invocable por cualquier
+`authenticated` vía REST. No se eliminó (podría haber integraciones externas
+desconocidas) — se revocó `EXECUTE` de `anon`/`authenticated`
+(`20260907000702_revoca_registrar_venta_serializada_obsoleta.sql`), el remedio que el
+propio advisor recomienda para una función SECURITY DEFINER que no debería ser invocable
+por usuarios finales. **No** se convirtió ninguna función a SECURITY INVOKER solo para
+silenciar el advisor — el resto de los 87 warnings restantes son legítimos (necesitan
+SECURITY DEFINER para escribir atómicamente across tablas que RLS no puede orquestar) y
+ya estaban protegidos internamente antes de este pase.
+
+## Bloque 10 — Tests de regresión
+
+- `scripts/verify-security.mjs` (parte de `npm test`): assertions estáticas nuevas para
+  los bloques 3, 4, 5 y 6 de este pase (ver arriba) — falla el build si alguien revierte
+  la propagación de `promocionId`/`autorizacionId`, el selector de caja de pago a
+  proveedor, el uso de `businessDate` en vez de UTC crudo, o si `Seriales.tsx` vuelve a
+  llamar `reservar_seriales_carrito` directamente.
+- `scripts/verify-integrity-invariants.mjs` (nuevo, `npm run test:integration`, no forma
+  parte de `npm test` porque necesita credenciales vivas y escribe/lee contra producción
+  real): reproduce con `curl`/`fetch` + JWT real, no mocks, contra el proyecto de
+  producción:
+  - Venta: idempotencia real por `client_transaction_id` (dos envíos → misma venta).
+  - Caja: un retiro que excede el saldo se rechaza (nunca negativa).
+  - Stock: `ajustar_stock` rechaza un retiro mayor al disponible.
+  - IMEI: dos carritos no pueden reservar el mismo serial; `seriales_disponibles` no
+    ofrece a un carrito un serial ya tomado por otro.
+  - Conteo físico (Bloque 1, opt-in con `QA_RUN_CONTEO_FISICO=1` — ver más abajo):
+    reproduce el Caso B exacto del hardening (snapshot 10, venta -2 concurrente, conteo
+    9 → resultado final 9, no el 7 que daba la fórmula anterior).
+  - El escenario "`ajustar_stock` rechaza sucursal ajena para un no-admin" (Bloque 2) NO
+    se automatizó: requiere una segunda identidad no-admin real, que la cuenta QA (admin,
+    necesaria para poder escribir catálogo/inventario directo vía REST donde no hay RPC)
+    bypasea por diseño. Queda verificado manualmente (curl con dos cuentas reales durante
+    el hardening), documentado aquí como limitación conocida de la suite automatizada, no
+    como caso sin probar.
+  - `QA_RUN_CONTEO_FISICO`: `iniciar_inventario_fisico` abre un conteo para **toda la
+    sucursal** (catálogo real incluido, no solo la variante de prueba) — correrlo en cada
+    `npm run test:integration` dejaría una entrada sintética de "conteo físico completo"
+    en el historial real de esa sucursal en cada ejecución, y puede chocar con un conteo
+    físico real en curso. Por eso el Escenario 5 queda detrás de ese flag explícito;
+    verificado manualmente en esta pasada (ver resultado arriba), no en el flujo por
+    defecto.
+
+### Residuos de prueba conocidos (por diseño, no un bug)
+
+`sales`, `sale_items`, `payments`, `cash_movements`, `inventory_movements`,
+`product_serials`, `serial_reservations`, `inventarios_fisicos`/`inventario_fisico_items`
+**no tienen policy de DELETE para ningún rol** (ni siquiera administrador) — son
+historiales de auditoría inmutables por diseño, el mismo principio que "`cash_movements`
+append-only" del hardening original. Cualquier corrida de
+`verify-integrity-invariants.mjs` deja necesariamente algunas filas de prueba ahí (con
+nombre `QA-INTEGRITY-*` o atadas al staff QA), imposibles de borrar vía REST por
+cualquier rol de aplicación. El script ya no intenta ese DELETE condenado a fallar: los
+productos/variantes asociados se **desactivan** (`activo=false`, un UPDATE sí permitido)
+para que dejen de aparecer en catálogo/reportes/conteos físicos futuros, y el resto queda
+documentado en la salida del script bajo "Residuos ESPERADOS" con los IDs exactos de esa
+corrida. Purgarlos definitivamente requiere una conexión de administrador de base de
+datos fuera del rol de aplicación — nunca una vía que la propia app o un usuario
+`authenticated` puedan alcanzar.
+
+## Archivos modificados en este pase (P0.1)
+
+Backend (migraciones nuevas, en orden — el nombre de archivo YA es la versión real
+aplicada, ver Bloque 8):
+1. `20260906224923_conteo_fisico_expectativa_por_instante.sql`
+2. `20260906231547_ajustar_stock_sucursal_y_actor_real.sql`
+3. `20260906232219_descuentos_autorizacion_end_to_end.sql`
+4. `20260906233406_pago_proveedor_valida_sucursal_caja.sql`
+5. `20260906235008_seriales_disponibles_excluye_reservados.sql`
+6. `20260906235627_validar_igv_server_side.sql`
+7. `20260907000702_revoca_registrar_venta_serializada_obsoleta.sql`
+
+Frontend:
+- `src/types/index.ts` — `DescuentoOrigen`, `CartItem.promocionId/autorizacionId/
+  descuentoOrigen`.
+- `src/pages/Venta.tsx` — captura de `promocion_id`/autorización consumida por línea.
+- `src/lib/offline.ts` — `registrarVenta()` envía `promocion_id`/`autorizacion_id` reales.
+- `src/pages/CuentasPorPagar.tsx` — selector de caja para pago a proveedor en efectivo,
+  scoping por sucursal de la factura.
+- `src/lib/businessDate.ts` (nuevo) — helper central de fecha comercial America/Lima.
+- `src/pages/CambiosTurno.tsx`, `ReportesAvanzados.tsx`, `MisSolicitudes.tsx`,
+  `PermisosPersonal.tsx`, `DashboardAdmin.tsx`, `ConciliacionPagos.tsx`,
+  `CierreDiario.tsx`, `Reportes.tsx` — migrados a `businessDate.ts`.
+- `src/pages/Seriales.tsx` — elimina "Reservar venta" y el flujo huérfano asociado.
+- `src/components/SelectorSeriales.tsx` — envía `client_transaction_id` a
+  `seriales_disponibles`.
+
+Tests:
+- `scripts/verify-security.mjs` — assertions estáticas nuevas del pase P0.1.
+- `scripts/verify-integrity-invariants.mjs` (nuevo) — suite de integración real.
+- `package.json` — `test:integration`.
+
+## Commits de este pase (rama `main`)
+
+`5d5a8a4` (bloque 1) → `40ca7cd` (2) → `8f39b2d` (3) → `60e426c` (4) → `d29490d` (5) →
+`24a24a1` (6) → `ecc92b5` (7) → `57216a1` (8) → `8063623` (9) → `901d9af` (10).
+
+## Riesgos residuales tras P0.1
+
+- Las ~16 migraciones pre-P0 (2026-08-19 a 2026-08-23) con desfase de timestamp local vs.
+  Supabase quedan sin reconciliar (ver Bloque 8) — evitar `supabase db push` desde un
+  clon limpio hasta resolverlas.
+- El aviso `auth_leaked_password_protection` del Security Advisor es preexistente, no
+  relacionado con este hardening (es una opción de configuración de Supabase Auth, no una
+  función/tabla de la aplicación) — no auditado en esta pasada.
+- El escenario "`ajustar_stock` rechaza sucursal ajena" (Bloque 2) y el conteo físico
+  (Bloque 1, vía `QA_RUN_CONTEO_FISICO=1`) no corren en un `npm test`/`npm run
+  test:integration` por defecto — quedan verificados manualmente/opt-in, no en CI
+  continuo, por las razones de alcance/seguridad explicadas en cada bloque.
+- Este pase no tocó transferencias parciales, idempotencia de recepción de compras,
+  centro de incidencias, ni ningún otro ítem ya listado como P1 en la sección P0 original
+  — siguen igual de pendientes que antes.
+
+## P1 ahora habilitado para empezar
+
+Con este bloque cerrado, los ítems de P1 listados en la sección P0 original
+("Problemas conocidos que quedan abiertos") pueden empezar en cualquier orden — ninguno
+de ellos depende de una corrección de este pase P0.1. En particular, transferencias
+parciales, conciliación avanzada, centro de incidencias y reportes avanzados (los cuatro
+que motivaron detener P1 al inicio de este pase) no chocan con ningún cambio de
+descuentos/autorizaciones, stock, conteo físico, caja, IMEI, IGV o fecha comercial hecho
+aquí.

@@ -120,5 +120,39 @@ assert(audit.includes("rpc('auditoria_reciente_admin'"), 'Auditoría usa RPC adm
 assert(notify.includes('token === SUPABASE_SERVICE_ROLE_KEY'), 'notificar-estado exige service role')
 assert(receipt.includes("staff.rol === \"administrador\""), 'Reintentos Nubefact exigen admin')
 
+// P0.1 — descuentos/promociones/autorizaciones end-to-end
+const ventaP01 = read('src/pages/Venta.tsx')
+const offlineP01 = read('src/lib/offline.ts')
+const cuentasPorPagarP01 = read('src/pages/CuentasPorPagar.tsx')
+const businessDateLib = read('src/lib/businessDate.ts')
+const conciliacionP01 = read('src/pages/ConciliacionPagos.tsx')
+const dashboardP01 = read('src/pages/DashboardAdmin.tsx')
+const cambiosTurnoP01 = read('src/pages/CambiosTurno.tsx')
+const permisosP01 = read('src/pages/PermisosPersonal.tsx')
+const misSolicitudesP01 = read('src/pages/MisSolicitudes.tsx')
+const reportesP01 = read('src/pages/Reportes.tsx')
+const reportesAvanzadosP01 = read('src/pages/ReportesAvanzados.tsx')
+
+assert(ventaP01.includes('promocionId') && ventaP01.includes('autorizacionId'), 'Venta.tsx conserva promocionId/autorizacionId por línea del carrito')
+assert(offlineP01.includes('promocion_id: i.promocionId') && offlineP01.includes('autorizacion_id: i.autorizacionId'), 'registrar_venta recibe promocion_id/autorizacion_id del carrito, no solo el monto')
+
+assert(cuentasPorPagarP01.includes("p_cash_session_id:metodo==='efectivo'?cajaId:null"), 'Pago a proveedor en efectivo envía la caja seleccionada')
+assert(cuentasPorPagarP01.includes("eq('location_id',factura.location_id)"), 'El selector de caja del pago a proveedor se limita a la sucursal de la factura')
+
+assert(fs.existsSync('src/lib/businessDate.ts'), 'Existe un helper central de fecha comercial en America/Lima')
+assert(businessDateLib.includes("America/Lima"), 'El helper de fecha comercial usa la zona horaria de Lima')
+for (const [nombre, contenido] of [
+  ['CierreDiario.tsx', cierre],
+  ['ConciliacionPagos.tsx', conciliacionP01],
+  ['DashboardAdmin.tsx', dashboardP01],
+  ['CambiosTurno.tsx', cambiosTurnoP01],
+  ['PermisosPersonal.tsx', permisosP01],
+  ['MisSolicitudes.tsx', misSolicitudesP01],
+  ['Reportes.tsx', reportesP01],
+  ['ReportesAvanzados.tsx', reportesAvanzadosP01],
+]) {
+  assert(!contenido.includes('toISOString().slice(0, 10)') && !contenido.includes('toISOString().slice(0,10)'), `${nombre} no usa UTC crudo para fecha comercial (usa businessDate)`)
+}
+
 if (process.exitCode) process.exit(process.exitCode)
 console.log('Security regression checks passed.')

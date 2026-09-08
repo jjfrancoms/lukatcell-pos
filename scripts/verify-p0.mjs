@@ -25,11 +25,19 @@ assert(inventario.includes("rpc('actualizar_costo_producto_admin'"),'Costo se ac
 assert(!inventario.includes("from('products').update({ costo })"),'Inventario no actualiza costo directamente')
 
 assert(venta.includes("rpc('limite_descuento_actual'"),'Venta obtiene límite de descuento desde servidor')
-assert(venta.includes("rpc('consumir_autorizacion_descuento'"),'Venta consume una autorización aprobada antes de solicitar otra')
+// P0.2 bloque 2: la autorización ya NO se consume al aplicar el descuento en
+// el carrito (eso la quemaba aunque la venta nunca ocurriera). Venta.tsx solo
+// CONSULTA; el consumo real es atómico dentro de registrar_venta.
+assert(venta.includes("rpc('consultar_autorizacion_descuento'"),'Venta solo consulta la autorización disponible (no la consume al aplicar el descuento)')
+assert(!venta.includes("rpc('consumir_autorizacion_descuento'"),'Venta ya no consume la autorización fuera de la transacción de venta')
 assert(venta.includes("rpc('solicitar_autorizacion'"),'Descuento sobre límite puede solicitar autorización')
-assert(venta.indexOf("rpc('consumir_autorizacion_descuento'") < venta.indexOf("rpc('solicitar_autorizacion'"),'Venta intenta consumir aprobación antes de crear solicitud')
+assert(venta.indexOf("rpc('consultar_autorizacion_descuento'") < venta.indexOf("rpc('solicitar_autorizacion'"),'Venta consulta una aprobación existente antes de crear una solicitud nueva')
 assert(venta.includes("rpc('resolver_promociones_carrito'"),'Venta resuelve promociones antes de cobrar')
-assert(venta.includes("rpc('registrar_uso_cupon'"),'Venta registra uso idempotente de cupón')
+// P0.2 bloque 1: el uso del cupón se contabiliza DENTRO de registrar_venta
+// (con lock sobre el cupón), no en una llamada aparte y best-effort que se
+// perdía si fallaba la red o se cerraba la pestaña.
+assert(!venta.includes("rpc('registrar_uso_cupon'"),'Venta ya no contabiliza el cupón por fuera de la venta')
+assert(venta.includes('codigoCupon={cupon'),'Venta envía el código de cupón al cobro para que registrar_venta lo valide y consuma')
 assert(venta.includes("Los cupones requieren conexión"),'Cupones no se aceptan offline sin validación servidor')
 assert(venta.includes('id="btn-cobrar"'),'F4 y botón comparten el mismo gate de cobro')
 

@@ -28,8 +28,11 @@ type Rango = 'hoy' | 'semana' | 'mes'
 function rangoFechas(rango: Rango) {
   const hasta = new Date()
   const desde = new Date()
-  if (rango === 'hoy') desde.setHours(0, 0, 0, 0)
-  else if (rango === 'semana') desde.setDate(desde.getDate() - 7)
+  // "Hoy" es un concepto de día comercial (America/Lima), no de medianoche
+  // local del dispositivo — startOfBusinessDayLima() da el instante UTC
+  // exacto en que empieza el día comercial de hoy en Lima.
+  if (rango === 'hoy') return { desde: startOfBusinessDayLima().toISOString(), hasta: hasta.toISOString() }
+  if (rango === 'semana') desde.setDate(desde.getDate() - 7)
   else desde.setDate(desde.getDate() - 30)
   return { desde: desde.toISOString(), hasta: hasta.toISOString() }
 }

@@ -39,3 +39,32 @@ export function addDaysBusinessDateLima(dias: number, from: Date = new Date()): 
 export function startOfBusinessDayLima(businessDate: string = getBusinessDateLima()): Date {
   return new Date(`${businessDate}T05:00:00.000Z`)
 }
+
+/**
+ * "Ahora" en hora de Lima, formateado para el valor de un
+ * `<input type="datetime-local">` (YYYY-MM-DDTHH:mm). Un datetime-local NO
+ * lleva zona horaria: el navegador muestra esos dígitos tal cual, como hora
+ * de pared. `new Date().toISOString().slice(0,16)` da la hora UTC con esos
+ * mismos dígitos — en Lima eso se ve 5 horas ADELANTADO de la hora real
+ * (ej. una promoción que el admin cree que "empieza ahora" en realidad
+ * empieza 5 horas después). Se usa para valores por defecto de vigencia de
+ * promociones/cupones — no para instantes técnicos.
+ */
+export function nowDatetimeLocalLima(d: Date = new Date()): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: LIMA_TZ, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const get = (t: string) => partes.find((p) => p.type === t)?.value ?? '00'
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`
+}
+
+/**
+ * Convierte el valor de un `<input type="datetime-local">` (YYYY-MM-DDTHH:mm,
+ * sin zona horaria) a un instante ISO real, tratando esos dígitos como hora
+ * de pared de Lima — NUNCA como hora local del navegador (`new Date(value)`
+ * usaría la zona del dispositivo, que puede no ser Lima). Perú es siempre
+ * UTC-5 (sin horario de verano), así que basta con anexar el offset fijo.
+ */
+export function limaDatetimeLocalToISO(value: string): string {
+  return new Date(`${value}:00.000-05:00`).toISOString()
+}

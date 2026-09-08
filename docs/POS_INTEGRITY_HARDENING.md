@@ -4,16 +4,28 @@ Documento vivo del hardening de integridad/seguridad transaccional iniciado 2026
 Cubre lo implementado, decisiones tomadas, y lo que sigue abierto. Se actualiza a medida
 que avanzan las fases restantes (P1).
 
-## Estado: P0 CERRADO (pase P0.1 de corrección de regresiones incluido). P1 pendiente.
+## Estado: P0 AÚN ABIERTO. Ver "P0.2" al final para qué falta exactamente.
 
-La sección **"P0.1 — Corrección de regresiones y cierre real del hardening"** (más abajo)
-documenta una segunda pasada realizada después de que la primera ronda de P0 (secciones
-1-10 de este documento) se declarara completa: una auditoría independiente encontró que
-varias de esas correcciones no estaban conectadas end-to-end con el frontend, o tenían
-bugs de lógica que las hacían inoperantes en la práctica (ver detalle sección P0.1,
-bloques 1-10). Ese hallazgo es la razón de que el estado ya no diga simplemente "P0
-completo" sin calificación: la sección P0.1 es la que sostiene esa afirmación con
-evidencia verificada bloque por bloque, no la primera pasada por sí sola.
+**Advertencia sobre el historial de este documento.** Cada pasada de hardening declaró
+su propio cierre y la siguiente encontró que era prematuro:
+
+- La ronda P0 original (secciones 1-10) se declaró "completa y verificada". La auditoría
+  siguiente encontró que varias correcciones no estaban conectadas end-to-end con el
+  frontend, y una — la autorización de descuento — era literalmente inoperable por un
+  bug de estados imposibles.
+- La ronda P0.1 (más abajo) se declaró "P0 CERRADO". La auditoría siguiente encontró que
+  cupones y promociones no eran atómicos, que la autorización se consumía antes de que
+  la venta existiera, que el conteo serializado seguía con la fórmula vieja, y que la
+  caracterización que P0.1 hizo del estado de las migraciones era incorrecta.
+- La ronda P0.2 encontró y corrigió eso, **y además introdujo dos regresiones propias**
+  (una sobrecarga ambigua de `registrar_venta` que rompió las ventas con promoción en
+  producción, y 8 funciones expuestas a `anon`) que no detectó ningún test sino una
+  revisión manual al final. Ver "Regresiones que introdujo el propio pase P0.2".
+
+La lección registrada aquí es concreta: en este proyecto **una corrección no está
+verificada hasta que se ejerce el flujo real end-to-end**, y el estado del servidor
+(sobrecargas, grants) no lo ve ningún test estático del repo. Por eso el estado dice
+AÚN ABIERTO y no "cerrado": lo que falta está enumerado explícitamente al final.
 
 Todas las correcciones de ambas pasadas fueron probadas con `curl` + JWT real contra la
 base de datos de producción (Supabase) — no solo introspección SQL — para ejercer
@@ -537,16 +549,18 @@ migrations`. Tabla de equivalencia para la tanda de hardening (Fase P0 + P0.1):
 **Residual, fuera de alcance de esta pasada:** ~16 migraciones **anteriores** al 2026-09-06
 (rango 2026-08-19 a 2026-08-23, previas a todo este esfuerzo de hardening P0/P0.1) tienen
 el mismo tipo de desfase de timestamp entre el nombre de archivo en GitHub y la versión
-registrada en Supabase. No se tocaron en esta pasada: no forman parte de las migraciones
-de hardening que el usuario pidió reconciliar explícitamente, y renombrarlas a ciegas sin
-verificar el contenido exacto de cada una de las 16 sería precisamente el tipo de "arreglo
-riesgoso" que esta fase prohíbe. **Riesgo real:** un `supabase db push` desde un clon
-limpio del repo intentaría reaplicar esos ~16 archivos con nombres que no coinciden con
-ninguna versión ya registrada, fallando por objetos duplicados. Mitigación actual: no usar
-`supabase db push`; seguir aplicando cambios vía migración nueva + MCP como se ha hecho en
-toda esta pasada. Queda como ítem P1 recomendado: reconciliarlas con `supabase migration
-repair` una por una, verificando antes el contenido exacto de cada archivo contra la
-definición real en producción.
+registrada en Supabase.
+
+> **CORRECCIÓN (P0.2 bloque 11): este párrafo era incorrecto.** La comparación que lo
+> produjo se hizo por *versión* y no por *nombre*, y eso ocultó el problema real. Al
+> comparar por nombre contra `supabase_migrations.schema_migrations` aparecieron tres
+> situaciones distintas, no una: (a) **16 migraciones aplicadas en producción sin ningún
+> archivo en el repo** — incluidas `initial_schema_pos`, `triggers_rls_policies` y
+> `all_phases_schema`, es decir el esquema base completo, así que un `db push` desde un
+> clon limpio nunca habría podido reconstruir la base; (b) 12 archivos con nombre correcto
+> y timestamp de borrador (el caso que este párrafo describía); (c) tres casos sueltos de
+> nombre no estándar o registro faltante. Todo quedó reconciliado en P0.2: **139 archivos
+> ↔ 139 registros, cero huérfanos en ambas direcciones.** Ver la sección P0.2 bloque 11.
 
 ## Bloque 9 — Auditoría selectiva de SECURITY DEFINER
 
@@ -681,3 +695,287 @@ parciales, conciliación avanzada, centro de incidencias y reportes avanzados (l
 que motivaron detener P1 al inicio de este pase) no chocan con ningún cambio de
 descuentos/autorizaciones, stock, conteo físico, caja, IMEI, IGV o fecha comercial hecho
 aquí.
+
+---
+
+# P0.2 — Cierre definitivo de integridad
+
+Fecha: 2026-09-07/08. Tercera pasada, tras una auditoría independiente sobre el estado
+real de GitHub + Supabase después de P0.1.
+
+## Bloque 1 — Cupones y promociones: server-side y atómicos
+
+**Problema confirmado.** `registrar_uso_cupon` se llamaba desde `Venta.tsx` **después**
+de que la venta ya estaba registrada, de forma asíncrona y best-effort: si fallaba la
+red, se cerraba la pestaña, o la venta era offline, el cupón nunca contabilizaba su uso.
+`max_usos` era evadible repitiendo el mismo código. Además `validar_linea_venta_catalogo`
+aproximaba el techo de descuento por promoción con fórmulas simplificadas — para `2x1`
+admitía **el precio completo** como "justificado por promoción", sin mirar la cantidad,
+que es exactamente el anti-patrón que este bloque prohibía.
+
+**Causa raíz.** El cupón vivía fuera de la transacción de la venta, y existían dos
+implementaciones distintas del cálculo de promociones (la del preview y la del trigger)
+que podían divergir — y divergían.
+
+**Solución** (`20260908030808_cupones_promociones_autorizacion_atomicos.sql`):
+- `private.calcular_promocion_carrito` concentra el cálculo. `resolver_promociones_carrito`
+  pasa a ser un envoltorio delgado sobre ella: **una sola implementación**, imposible que
+  el preview y la venta usen matemáticas distintas.
+- `registrar_venta` recibe `p_codigo_cupon`, bloquea el cupón con `SELECT ... FOR UPDATE`,
+  valida existencia/activo/vigencia/`max_usos`, calcula el mapa de promociones del carrito
+  **completo** una sola vez, verifica que el cupón realmente aplique a algo del carrito, y
+  registra el uso e incrementa el contador — todo dentro de su propia transacción. Si algo
+  falla después (stock, un pago, un item), el cupón nunca se gastó.
+- El techo exacto por línea viaja a `validar_linea_venta_catalogo` en una tabla temporal de
+  sesión (`venta_promo_ceiling`, `ON COMMIT DROP`). Es lo único con visibilidad al carrito
+  completo, necesario para `2x1`/`combo`, que dependen de cantidades agregadas y que un
+  trigger fila-por-fila no puede reconstruir de forma confiable. Si la tabla no existe
+  (alguien insertando en `sale_items` fuera de `registrar_venta`), el techo es 0: ninguna
+  promoción se acepta sin poder verificarla.
+- La idempotencia por `client_transaction_id` ya cortaba antes de esta lógica, así que un
+  doble submit no consume dos usos del cupón.
+- `registrar_uso_cupon` se conserva pero se le revoca EXECUTE: dejarla invocable permitía
+  saltarse el ciclo nuevo.
+
+## Bloque 2 — La autorización se consume al hacer commit de la venta
+
+**Problema confirmado.** `consumir_autorizacion_descuento` marcaba la autorización como
+`consumida` en el momento en que el cajero aplicaba el descuento en el carrito, **antes de
+que la venta existiera**. Si la venta luego fallaba (stock, precio) o el cajero abandonaba
+el cobro, la autorización quedaba quemada sin ninguna venta detrás.
+
+**Solución** (misma migración):
+- Se reemplaza por `consultar_autorizacion_descuento`: misma lógica, **solo lectura**,
+  nunca cambia el estado.
+- El consumo real vive ahora dentro de `validar_linea_venta_catalogo`, que corre dentro de
+  la transacción de `registrar_venta`, con `SELECT ... FOR UPDATE` sobre la autorización
+  (dos ventas concurrentes no pueden usar la misma) y transición `aprobada → consumida`
+  más el vínculo a `sale_item_id`, todo junto. Si la venta falla, el ROLLBACK de Postgres
+  deshace el consumo sin código adicional: nunca ocurrió en una transacción aparte.
+- Se agrega la validación de sucursal que faltaba: una autorización de otra sucursal ahora
+  se rechaza (mismo criterio que `ajustar_stock` desde P0.1).
+- `consumir_autorizacion_descuento` conservada pero con EXECUTE revocado.
+
+## Bloque 3 — Conteo serializado usa el esperado real, no el snapshot
+
+**Problema confirmado.** `cerrar_inventario_fisico` comparaba, para productos
+serializados, `cantidad_contada <> cantidad_sistema` (snapshot de apertura). Es el mismo
+bug matemático que P0.1 corrigió para productos normales, pero que sobrevivió sin corregir
+en la rama serializada. Caso real: snapshot 10, venta legítima -2 (esperado 8), físico
+contado 8 → el chequeo comparaba 8 contra 10 y bloqueaba el cierre con una diferencia
+falsa. Corregido: se calcula `v_esperado_al_contar` **antes** del chequeo y se compara
+contra eso.
+
+## Bloque 4 — Conteo de IMEI por unidad física
+
+**Problema confirmado.** Coincidir en cantidad no prueba que sean las mismas unidades:
+sistema `A,B` vs físico `A,C` da `2 = 2`, pero falta `B` y sobra `C`.
+
+**Solución** (`20260908031550_conteo_serializado_por_unidad_fisica.sql`): nueva tabla
+`inventario_fisico_seriales`. `iniciar_inventario_fisico` snapshotea los seriales
+esperados (los `product_serials` en `disponible` de esa sucursal).
+`registrar_serial_contado` reconcilia cada escaneo contra esa lista: coincide, o queda
+como `inesperado` — **nunca crea un `product_serials` nuevo automáticamente**.
+`resolver_reconciliacion_serial` exige resolución explícita con motivo (ubicación
+corregida, recepción omitida, cuarentena, error de escaneo) para cada faltante o
+inesperado. `registrar_conteo_fisico` ya no acepta cantidad tipeada para un producto
+serializado. `cerrar_inventario_fisico` exige cero seriales sin reconciliar **además** de
+la cantidad exacta, y nunca ajusta `inventory.cantidad` numéricamente para serializados.
+
+## Bloque 5 — La UI muestra la diferencia real
+
+`ConteoInventario.tsx` recalculaba `contado - cantidad_sistema` en React — la fórmula
+vieja, que ignora los movimientos posteriores a la apertura — mientras el backend ya usaba
+`esperado_al_contar`. Podía mostrarle al empleado una diferencia con el signo contrario al
+ajuste real. Ahora consume `detalle_inventario_fisico` (backend), que expone
+`cantidad_sistema`, `movimientos_hasta_contar`, `cantidad_esperada`, `cantidad_contada`,
+`diferencia_real` y el estado de reconciliación por serial. La UI ya no calcula: muestra.
+
+## Bloque 6 — Último rango dependiente del timezone del dispositivo
+
+`Reportes.tsx` calculaba el filtro "Hoy" con `new Date(); setHours(0,0,0,0)` — medianoche
+**local del dispositivo**, no del día comercial de Lima. Ahora usa
+`startOfBusinessDayLima()`.
+
+Hallazgo adicional de la búsqueda exhaustiva: `Promociones.tsx` pre-llenaba el
+`datetime-local` de vigencia con `new Date().toISOString().slice(0,16)`. Un
+`datetime-local` no lleva zona horaria — el navegador muestra esos dígitos tal cual como
+hora de pared — así que ese valor se veía **5 horas adelantado** de la hora real de Lima:
+una promoción que el admin creía que "empieza ahora" quedaba con `fecha_inicio` 5 horas en
+el futuro. Relevante porque esas fechas alimentan directamente el motor de cupones que el
+bloque 1 acaba de hacer atómico. Se agregaron `nowDatetimeLocalLima()` y
+`limaDatetimeLocalToISO()` y se usan tanto al pre-llenar como al guardar.
+
+## Bloque 7 — Tests mutantes bloqueados contra producción
+
+`npm run test:integration` crea ventas, cajas, movimientos, seriales y conteos reales, y
+varias de esas tablas son append-only: correrla contra producción deja residuo permanente
+(fue exactamente lo que pasó en P0.1). Ahora responde
+`REFUSED: mutating integration tests cannot run against production` y sale con código 1,
+salvo que se exporte `QA_ALLOW_MUTATING_INTEGRATION_TESTS=true` a propósito. El project ref
+de producción va **hardcodeado** (no en una env var: un `.env` mal copiado no debe poder
+desactivar el bloqueo) y el chequeo **falla cerrado** — si `SUPABASE_URL` no se puede
+interpretar, se asume producción.
+
+Detalle que solo apareció al probarlo: el parseo del ref usa regex y no `new URL(...)`,
+porque el módulo declara más abajo `const URL = process.env.SUPABASE_URL`, que sombrea al
+constructor global; con `new URL(...)` el bloqueo lanzaba `ReferenceError` por TDZ, el
+`catch` se lo tragaba y **la protección fallaba en silencio**.
+
+Nuevo `npm run test:production:readonly`: verifica producción sin escribir nada. La
+introspección vive en `diagnostico_integridad_admin()` (SECURITY DEFINER, STABLE, solo
+admin) porque un script con solo la anon key no puede consultar `information_schema`:
+PostgREST solo expone `public`.
+
+## Bloque 8 — Datos QA en producción: inventario y estrategia
+
+Inventario exacto de lo que dejaron las corridas de P0.1: 18 productos QA, 18 variantes,
+8 filas de `inventory`, 8 `inventory_movements`, 10 `product_serials`, 5
+`serial_reservations`, 5 `sale_items`, 5 ventas, 5 `payments`, 5 `cash_sessions`, 5
+`cash_movements`, 20 `inventario_fisico_items`, 5 `inventarios_fisicos`.
+
+Lo relevante: esas 5 ventas sumaban **S/250** en `business_date` 2026-09-06, un día que
+**no estaba cerrado todavía** — iban a entrar como ingreso real en el próximo cierre.
+
+**Estrategia elegida: marcar, no borrar.** `sales`/`sale_items`/`payments`/`cash_movements`
+son append-only por diseño y esas ventas ya consumieron los correlativos internos 51-55;
+borrarlas dejaría huecos en la numeración, que en un POS es una señal de auditoría *peor*
+que una fila marcada. Se agregó `sales.is_test` (default `false`, que `registrar_venta`
+nunca setea) y se excluye de las cinco funciones que producen cifras que el negocio lee:
+`resumen_cierre_diario` (la crítica: alimenta el cierre aprobado y bloqueado),
+`resumen_ganancias`, `top_productos_ganancia`, `dashboard_operativo_admin` y
+`reportes_avanzados_admin`.
+
+**Verificado:** el cierre diario de 2026-09-06 pasa de S/403 en 6 ventas a **S/153 en 1
+venta**.
+
+Nota fiscal: `nubefact_activo = false`, así que estas ventas nunca generaron comprobante
+electrónico ni se declararon a SUNAT (sin serie/correlativo, sin filas en
+`comprobantes_electronicos`). No hay obligación tributaria atada a ellas. Si el dueño
+prefiere borrarlas del todo es una decisión suya; este pase no la toma por él.
+
+## Bloque 9 — Terminales POS y cierre diario multi-terminal
+
+**El agujero.** Cada navegador conoce sus ventas offline pendientes solo en su propio
+IndexedDB. Un admin en otra PC no tiene forma de saberlo, aprueba el día, y cuando ese POS
+vuelve online su venta legítima es rechazada para siempre por
+`bloquear_ventas_dia_aprobado` — quedando atrapada en la cola local reintentando
+eternamente, sin que nadie se entere.
+
+**Solución** (`20260908033309_pos_devices_y_cierre_diario_multi_terminal.sql`): tabla
+`pos_devices` con `device_id` persistente por terminal (generado por el navegador y
+guardado en `localStorage`), y `registrar_heartbeat_pos` que publica `pending_sales_count`
+/ `failed_sales_count` / `last_seen_at` / `last_sync_at`. La sucursal y el staff **no** se
+toman del cliente: salen de `auth.uid() → staff`. El heartbeat se engancha al ciclo de
+sincronización que `Layout.tsx` ya corría cada 45 s.
+
+`aprobar_cierre_diario` — el paso que congela el día — ahora rechaza si alguna terminal de
+la sucursal tiene ventas pendientes, ventas fallidas, o lleva más de 2 horas sin reportar.
+Válvula de escape con auditoría: `marcar_dispositivo_fuera_de_servicio`
+(admin/encargado/jefa, motivo obligatorio de ≥5 caracteres) para que un equipo roto o
+reemplazado no bloquee el cierre para siempre; si ese equipo vuelve a reportar, la marca se
+levanta sola porque ya no describe la realidad. `CierreDiario.tsx` muestra qué terminal
+bloquea y por qué, con el botón deshabilitado.
+
+**Comportamiento seguro en la migración:** con cero terminales registradas el gate no
+bloquea nada, así que el cierre diario sigue funcionando igual hasta que el frontend con
+heartbeat esté desplegado.
+
+## Bloque 10 — Política de venta offline post-cierre (decidida y documentada)
+
+- **(A)** Mientras haya terminales con pendientes o fallidas, el cierre **no se puede
+  aprobar**. Es la defensa principal, y con el bloque 9 es la que actúa en la práctica.
+- **(B)** Si llega una venta tardía y el cierre existe pero **no** está aprobado, la venta
+  entra normal: `resumen_cierre_diario` se evalúa al aprobar, así que el cierre se
+  recalcula solo.
+- **(C)** Si el cierre **ya está aprobado**, la venta se sigue rechazando. El trigger
+  `bloquear_ventas_dia_aprobado` no se tocó: **no se altera en silencio una cifra
+  aprobada**. La diferencia con antes es que ahora llegar a ese estado por accidente es
+  casi imposible, y el caso queda visible en `pos_devices` (`failed_sales_count`) en vez
+  de ser un reintento infinito invisible.
+
+## Bloque 11 — Reconciliación real del historial de migraciones
+
+La caracterización de P0.1 era incorrecta (ver la corrección insertada más arriba). El
+diagnóstico correcto, comparando **por nombre**:
+
+| Situación | Cantidad | Resolución |
+|---|---|---|
+| Aplicadas en producción **sin archivo en el repo** | 16 | Recuperadas desde `schema_migrations.statements` (el SQL que la propia producción guardó) y escritas como archivos, sin reejecutar nada |
+| Archivo correcto con **timestamp de borrador** | 12 | Renombrados al timestamp real, con el mapeo verificado por tamaño contra los bytes registrados en producción (coinciden 100-101 %) |
+| Nombre no estándar (`001_configuracion.sql`, `20260815_whatsapp_agent.sql`) | 2 | Renombrados; el de WhatsApp conservó el archivo original, que tiene más comentarios que la versión registrada |
+| Efecto aplicado pero **sin registro** (`configuracion_singleton`, `hide_product_cost_after_ui_migrated`) | 2 | Registrados en `schema_migrations` (equivalente a `migration repair --status applied`), sin reejecutar SQL. Para `hide_product_cost` se verificó **columna por columna** que los grants que otorga son exactamente los que tiene `products` hoy |
+
+**Resultado: 139 archivos ↔ 139 registros, cero huérfanos en ambas direcciones.**
+
+Las 16 recuperadas incluyen `initial_schema_pos`, `triggers_rls_policies` y
+`all_phases_schema`: el esquema base completo, que hasta ahora **no existía en el
+repositorio**. Antes de esto, un `db push` desde un clon limpio a un proyecto nuevo no
+podía reconstruir la base de datos.
+
+## Regresiones que introdujo el propio pase P0.2
+
+Se documentan explícitamente porque son la parte más instructiva de esta pasada: las
+encontró una revisión manual al final, **no la suite de tests**.
+
+**1. Sobrecarga ambigua de `registrar_venta` — rompió ventas con promoción en producción.**
+El bloque 1 le agregó `p_codigo_cupon` con `CREATE OR REPLACE`. En Postgres, agregar un
+parámetro **cambia la firma**: crea una función nueva, no reemplaza. Quedaron dos
+`registrar_venta` (19 y 20 parámetros). El frontend desplegado seguía llamando la de 19,
+que no arma `venta_promo_ceiling`; y como el trigger `validar_linea_venta_catalogo` sí
+estaba actualizado y es compartido, al no encontrar la tabla temporal asumía techo de
+promoción 0 y rechazaba la línea. Es decir: **cualquier venta con promoción de un cajero
+no-admin estuvo siendo rechazada en vivo** desde que se aplicó el bloque 1 hasta que se
+corrigió. P0.1 ya había aplicado la disciplina de `drop function` de la firma vieja a
+otras RPC; este pase la omitió. Corregido en
+`20260908034807_corrige_sobrecarga_registrar_venta_y_grants_anon.sql`.
+
+**2. Ocho funciones nuevas quedaron ejecutables por `anon`.** Toda función recién creada
+nace con `EXECUTE` para `PUBLIC` (que incluye `anon`), y el `grant ... to authenticated`
+explícito **no quita** ese grant implícito — revirtiendo sin querer lo que ya habían
+endurecido `revoke_anon_security_definer_except_login` y
+`harden_security_definer_public_grants`. Todas validan `auth.uid()` por dentro, así que un
+`anon` no habría escrito nada, pero era superficie innecesaria.
+
+**3. `npm test` estuvo fallando desde el bloque 1 sin que se notara**, porque se estuvo
+revisando `tail` de la salida en vez del exit code. Dos assertions de `verify-p0.mjs`
+codificaban el diseño viejo (que `Venta.tsx` consumiera la autorización antes de la venta
+y contabilizara el cupón después) — justo lo que P0.2 corrigió. Una de ellas además pasaba
+**en falso**: comparaba `indexOf` de una cadena ausente (-1) contra otra presente.
+
+Para que (1) y (2) no vuelvan a pasar sin ser vistas, `diagnostico_integridad_admin` ahora
+reporta sobrecargas ambiguas y funciones SECURITY DEFINER accesibles por `anon`, y
+`verify-production-readonly.mjs` las verifica. Ambas cosas **solo existen en el estado del
+servidor**: ningún test estático del repo podía verlas.
+
+## Migraciones creadas en P0.2
+
+1. `20260908030808_cupones_promociones_autorizacion_atomicos.sql` — bloques 1 y 2
+2. `20260908031550_conteo_serializado_por_unidad_fisica.sql` — bloques 3, 4 y 5 (backend)
+3. `20260908032306_diagnostico_integridad_admin_readonly.sql` — apoyo del bloque 7
+4. `20260908032951_marcar_ventas_de_prueba_y_excluirlas_de_finanzas.sql` — bloque 8
+5. `20260908033309_pos_devices_y_cierre_diario_multi_terminal.sql` — bloques 9 y 10
+6. `20260908034807_corrige_sobrecarga_registrar_venta_y_grants_anon.sql` — corrección
+7. `20260908034945_diagnostico_detecta_sobrecargas_y_grants_anon.sql` — corrección
+8. Más 16 migraciones **recuperadas** y 14 **renombradas** (bloque 11), sin SQL nuevo
+
+## Qué falta para poder decir "P0 cerrado"
+
+1. **Verificación funcional end-to-end de los bloques 1 y 2 con datos reales.** Se
+   verificó la superficie (firmas, grants, definiciones desplegadas) y se revisó la lógica
+   línea por línea, pero **no se ejecutó una venta real con cupón, con promoción `2x1` y
+   con autorización de descuento**, porque el bloque 7 de este mismo prompt prohíbe seguir
+   contaminando producción y no existe un proyecto de staging. La regresión de la
+   sobrecarga demuestra por qué esto importa: la superficie estaba perfecta y el flujo real
+   estaba roto. **Recomendación concreta:** crear un proyecto Supabase de staging, aplicar
+   las migraciones, y correr ahí `QA_ALLOW_MUTATING_INTEGRATION_TESTS=true npm run
+   test:integration` extendido con los 20 casos de cupón/promoción y los 9 de autorización
+   que este prompt enumera.
+2. **Los escenarios de conteo IMEI (bloque 4) y de terminales POS (bloque 9) no se
+   ejercieron end-to-end.** Del bloque 9 sí se verificaron en producción las tres
+   clasificaciones (pendientes, sin reportar, fuera de servicio) con un dispositivo
+   sintético que luego se eliminó, pero no el ciclo completo heartbeat → intento de
+   aprobación → sincronización → aprobación.
+3. **Verificación del deployment en Vercel.** La cuenta Vercel conectada a esta sesión no
+   tiene acceso a este proyecto (`list_projects` falla), así que no se pudo confirmar que
+   el commit final haya desplegado bien.

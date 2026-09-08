@@ -226,7 +226,11 @@ export default function Venta() {
     // quedar pegada a la línea y reenviarse a registrar_venta sin sentido.
     let autorizacionId: string | null = null
     if (!isAdmin && pct > limiteDescuento + 0.0001) {
-      const { data: resultado, error: consumeError } = await supabase.rpc('consumir_autorizacion_descuento', {
+      // Solo CONSULTA si hay una autorización aprobada disponible — no la
+      // consume. El consumo real (atómico, con lock) ocurre dentro de
+      // registrar_venta al cobrar; si el cobro nunca se completa, esta
+      // autorización sigue disponible/aprobada para reintentar.
+      const { data: resultado, error: consumeError } = await supabase.rpc('consultar_autorizacion_descuento', {
         p_variant_id: vid, p_porcentaje: pct, p_descuento_unitario: descuento
       })
       if (consumeError) { showToast('No se pudo validar la autorización', 'error'); return }
@@ -240,7 +244,7 @@ export default function Venta() {
         setDescItem(null); setDescValor(''); return
       }
       autorizacionId = r.autorizacion_id
-      showToast('Autorización de descuento aplicada', 'success')
+      showToast('Descuento con autorización disponible', 'success')
     }
     setDescuentosManuales((m) => ({ ...m, [vid]: descuento }))
     setCart((p) => p.map((i) => i.variant.id === vid
@@ -459,16 +463,15 @@ export default function Venta() {
           nubefactActivo={config.nubefact_activo} culqiActivo={config.culqi_activo} permitirVincularOrden
           locationId={staff?.location_id ?? null} cajeroId={staff?.id ?? null} cashSessionId={cashSessionId}
           cartTransactionId={cartTransactionId}
+          codigoCupon={cupon.trim() || null}
           onClose={() => setShowPago(false)}
           onConfirm={(res) => {
-            const codigoUsado = cupon.trim()
             setCart([]); setDescuentosManuales({}); setCupon(''); setPromoAplicada(null); setShowPago(false); setShowCart(false)
             setCartTransactionId(crypto.randomUUID())
             if (staff?.id) borrarCarritoActivo(staff.id)
             if (res) {
               setRecibo({ ...res, cajeroNombre: staff?.nombre ?? null })
               if (res.saleId === 'pendiente-sync') showToast('Venta guardada sin conexión, se sincronizará automáticamente', 'info')
-              else if (codigoUsado && online) supabase.rpc('registrar_uso_cupon', { p_codigo: codigoUsado, p_sale_id: res.saleId }).then(({ error }) => { if (error) showToast('Venta registrada, pero no se pudo contabilizar el uso del cupón', 'error') })
             }
           }} />
       )}

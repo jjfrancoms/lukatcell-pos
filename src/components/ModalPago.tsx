@@ -8,10 +8,10 @@ import PagoDigitalCulqi from './PagoDigitalCulqi'
 
 export interface ResultadoVenta { saleId: string; numero: number | null; fecha: string; cart: CartItem[]; subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null }
 
-export default function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, clienteInicial, titulo, permitirVincularOrden, cartTransactionId: cartTransactionIdProp, onClose, onConfirm }: {
+export default function ModalPago({ total, subtotal, impuesto, cart, online, nubefactActivo, culqiActivo, locationId, cajeroId, cashSessionId, clienteInicial, titulo, permitirVincularOrden, cartTransactionId: cartTransactionIdProp, codigoCupon, onClose, onConfirm }: {
   total: number; subtotal: number; impuesto: number; cart: CartItem[]; online: boolean; nubefactActivo: boolean; culqiActivo: boolean
   locationId: string | null; cajeroId: string | null; cashSessionId: string | null
-  clienteInicial?: Cliente | null; titulo?: string; permitirVincularOrden?: boolean; cartTransactionId?: string
+  clienteInicial?: Cliente | null; titulo?: string; permitirVincularOrden?: boolean; cartTransactionId?: string; codigoCupon?: string | null
   onClose: () => void; onConfirm: (r: ResultadoVenta | null) => void
 }) {
   const [mixto, setMixto] = useState(false)
@@ -94,6 +94,7 @@ export default function ModalPago({ total, subtotal, impuesto, cart, online, nub
       clientTransactionId, cart, subtotal, impuesto, total, pagos,
       clienteId, clienteDoc: null, cashSessionId, locationId, cajeroId,
       ordenServicioId: ordenSel?.id ?? null,
+      codigoCupon: codigoCupon || null,
       comprobante: nubefactActivo ? {
         tipoComprobante,
         clienteTipoDoc: (tipoComprobante === 'factura' ? 'ruc' : docCliente ? 'dni' : null) as TipoDocumentoCliente | null,

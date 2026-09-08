@@ -22,6 +22,7 @@ export interface VentaPendiente {
   cajeroId: string | null
   comprobante: DatosComprobante
   ordenServicioId: string | null
+  codigoCupon?: string | null
   createdAt: string
   estado: SyncEstado
   intentos: number
@@ -312,6 +313,7 @@ export async function registrarVenta(v: {
   cashSessionId: string | null
   comprobante?: DatosComprobante
   ordenServicioId?: string | null
+  codigoCupon?: string | null
   occurredAt?: string
   offlineOrigin?: boolean
 }): Promise<Sale> {
@@ -346,6 +348,7 @@ export async function registrarVenta(v: {
     p_occurred_at: v.occurredAt ?? null,
     p_offline_origin: v.offlineOrigin ?? false,
     p_orden_servicio_id: v.ordenServicioId ?? null,
+    p_codigo_cupon: v.codigoCupon || null,
   })
   if (error) {
     throw new ErrorRegistroVenta(error.message || 'No se pudo registrar la venta', !!error.code)

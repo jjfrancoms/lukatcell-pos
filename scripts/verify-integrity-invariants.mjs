@@ -44,6 +44,44 @@
 // purgarlos aparte con una conexión de administrador de base de datos si el
 // proyecto usado es efectivamente uno de prueba/QA.
 
+// P0.2 bloque 7: esta suite CREA datos reales (ventas, cajas, movimientos,
+// seriales, conteos) y varias de esas tablas son append-only por diseño —
+// no hay forma de dejar producción exactamente como estaba. Correrla contra
+// el proyecto de producción real, aunque sea "solo para probar", deja
+// residuos permanentes (ver docs/POS_INTEGRITY_HARDENING.md). El único
+// proyecto Supabase de LUKATCELL hoy es el de producción — no existe un
+// branch/staging separado — así que el bloqueo de abajo es la única
+// protección real contra correr esto sin querer contra el negocio en vivo.
+//
+// El project ref de producción está hardcodeado a propósito (no en una env
+// var): si se pudiera "configurar" el bloqueo con una variable de entorno,
+// un simple typo o un .env mal copiado lo desactivaría en silencio.
+const PROD_SUPABASE_PROJECT_REF = 'fbwkclpgnsxuqycazumj'
+
+// Se extrae con regex a propósito, sin `new URL(...)`: más abajo este módulo
+// declara `const URL = process.env.SUPABASE_URL`, que sombrea al constructor
+// global; usarlo aquí lanzaría un ReferenceError por TDZ y — si eso quedara
+// dentro de un try/catch — el bloqueo fallaría en SILENCIO, que es
+// exactamente lo que este bloqueo existe para evitar.
+function projectRefDe(url) {
+  const m = /^https?:\/\/([^./]+)\./.exec(String(url || ''))
+  return m ? m[1] : null
+}
+
+const refDestino = projectRefDe(process.env.SUPABASE_URL)
+const permitidoExplicitamente = process.env.QA_ALLOW_MUTATING_INTEGRATION_TESTS === 'true'
+
+if (!permitidoExplicitamente && (refDestino === PROD_SUPABASE_PROJECT_REF || refDestino === null)) {
+  // Falla cerrado: si SUPABASE_URL no se puede interpretar, se asume lo peor.
+  console.error('REFUSED: mutating integration tests cannot run against production')
+  console.error(refDestino === null
+    ? `No se pudo determinar el proyecto destino desde SUPABASE_URL (${process.env.SUPABASE_URL || 'vacío'}); por seguridad se asume producción.`
+    : `SUPABASE_URL apunta al proyecto de producción (${PROD_SUPABASE_PROJECT_REF}). Esta suite crea ventas, cajas, seriales y conteos reales — varias de esas tablas son append-only y NO se pueden dejar como estaban.`)
+  console.error('Si de verdad quieres correrla ahí (con pleno conocimiento del residuo permanente que deja), exporta QA_ALLOW_MUTATING_INTEGRATION_TESTS=true explícitamente.')
+  console.error('Para verificar producción sin escribir nada, usa: npm run test:production:readonly')
+  process.exit(1)
+}
+
 const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'QA_STAFF_EMAIL', 'QA_STAFF_PASSWORD', 'QA_STAFF_ID', 'QA_LOCATION_ID']
 const missing = required.filter((k) => !process.env[k])
 if (missing.length) {

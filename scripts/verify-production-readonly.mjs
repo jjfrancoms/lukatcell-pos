@@ -82,6 +82,18 @@ async function main() {
   assert(d.inventario_fisico_seriales_existe,
     'La reconciliación de conteo físico por IMEI/serie está desplegada')
 
+  // --- Dos clases de error que el propio pase P0.2 cometió y ningún test
+  // --- estático podía ver, porque solo existen en el estado del servidor.
+  const sobrecargas = d.rpc_con_sobrecargas_ambiguas || []
+  assert(sobrecargas.length === 0,
+    `Ninguna RPC tiene sobrecargas ambiguas (PostgREST podría resolver a la versión vieja). Encontradas: ${sobrecargas.length}`)
+  if (sobrecargas.length) info(`Sobrecargas: ${JSON.stringify(sobrecargas)}`)
+
+  const expuestas = d.security_definer_ejecutables_por_anon || []
+  assert(expuestas.length === 0,
+    `Ninguna función SECURITY DEFINER es ejecutable por anon (toda función nueva nace con EXECUTE para PUBLIC). Encontradas: ${expuestas.length}`)
+  if (expuestas.length) info(`Ejecutables por anon: ${JSON.stringify(expuestas)}`)
+
   // --- Estado operativo: cosas que quedaron trabadas y nadie notó
   const conteos = d.conteos_fisicos_abiertos_hace_mas_de_2_dias || []
   assert(conteos.length === 0,

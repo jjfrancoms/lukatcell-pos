@@ -5,6 +5,7 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { useOnlineStatus, contarVentasPendientes } from '../lib/offline'
 import { sincronizarVentasCoordinadas } from '../lib/offlineAdvanced'
+import { enviarHeartbeatPos } from '../lib/posDevice'
 
 type SucursalAcceso={location_id:string;nombre:string;direccion:string|null;activa:boolean}
 type NavItem={to:string;label:string;icon:React.ComponentType<{size?:number;className?:string}>}
@@ -92,7 +93,14 @@ export default function Layout() {
   },[location.pathname,isAdmin,puedeInventarioAvanzado])
   useEffect(()=>{supabase.rpc('mis_sucursales').then(({data})=>setSucursales((data as SucursalAcceso[])||[]))},[staff?.id])
   const cambiarSucursal=async(locationId:string)=>{if(!locationId||locationId===staff?.location_id)return;const {error}=await supabase.rpc('cambiar_sucursal_activa',{p_location_id:locationId});if(!error)window.location.reload()}
-  const actualizar=()=>contarVentasPendientes().then(v=>{setPendientes(v.pendientes);setFallidas(v.fallidas);setAgotadas(v.agotadas)})
+  // Además de actualizar los contadores locales, se publican server-side
+  // (pos_devices): el cierre diario de otra terminal no tiene forma de saber
+  // que ESTE navegador tiene ventas offline sin sincronizar, y aprobar el día
+  // sin saberlo dejaría esas ventas rechazadas para siempre.
+  const actualizar=()=>contarVentasPendientes().then(v=>{
+    setPendientes(v.pendientes);setFallidas(v.fallidas);setAgotadas(v.agotadas)
+    if(online) enviarHeartbeatPos(v.pendientes,v.fallidas+v.agotadas)
+  })
   useEffect(()=>{actualizar()},[])
   useEffect(()=>{if(!online)return;sincronizarVentasCoordinadas().then(actualizar);const i=setInterval(()=>sincronizarVentasCoordinadas().then(actualizar),45000);return()=>clearInterval(i)},[online])
   const reintentar=()=>{setReintentandoManual(true);sincronizarVentasCoordinadas(true).then(()=>{actualizar();setReintentandoManual(false)})}

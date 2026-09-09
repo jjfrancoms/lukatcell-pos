@@ -9,7 +9,8 @@ const money=(v:number)=>new Intl.NumberFormat('es-PE',{style:'currency',currency
 
 export default function ComparadorProveedores(){
  const {showToast}=useToast();const [variants,setVariants]=useState<Variant[]>([]);const [variantId,setVariantId]=useState('');const [rows,setRows]=useState<Row[]>([]);const [loading,setLoading]=useState(false)
- const loadVariants=async()=>{const {data,error}=await supabase.from('product_variants').select('id,color,product:products(nombre,sku)').order('created_at',{ascending:false}).limit(700);if(error){showToast(error.message,'error');return}setVariants((data as unknown as Variant[])||[])}
+ // products!inner + is_test=false deja fuera el catálogo QA: comparar costos de un producto sintético no dice nada del negocio y ensucia las 700 opciones del selector.
+ const loadVariants=async()=>{const {data,error}=await supabase.from('product_variants').select('id,color,product:products!inner(nombre,sku)').eq('product.is_test',false).order('created_at',{ascending:false}).limit(700);if(error){showToast(error.message,'error');return}setVariants((data as unknown as Variant[])||[])}
  useEffect(()=>{loadVariants()},[])
  const comparar=async(id=variantId)=>{if(!id){setRows([]);return}setLoading(true);const {data,error}=await supabase.rpc('comparar_costos_proveedores_admin',{p_variant_id:id});setLoading(false);if(error){showToast(error.message,'error');return}setRows((data as Row[])||[])}
  const selected=variants.find(v=>v.id===variantId)

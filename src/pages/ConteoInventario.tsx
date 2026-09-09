@@ -236,6 +236,9 @@ export default function ConteoInventario() {
 
 // Espeja exactamente las reglas de resolver_reconciliacion_serial: cada
 // opción dice qué le pasa de verdad a la unidad, no solo qué texto se guarda.
+// Esta lista es solo una guía para el usuario: la matriz de transiciones válidas
+// la valida el backend contra el estado real del serial, y si rechaza la combinación
+// el mensaje del RPC se muestra tal cual (ver `resolver`).
 function opcionesResolucion(s: SerialPendiente) {
   const faltante = s.esperado && !s.encontrado
   const comunes = [
@@ -244,7 +247,13 @@ function opcionesResolucion(s: SerialPendiente) {
     { tipo: 'baja', titulo: 'Dar de baja', efecto: 'Retira la unidad definitivamente del inventario. Solo administración.', bloquea: false },
   ]
   return faltante
-    ? [{ tipo: 'faltante_confirmado', titulo: 'Faltante confirmado', efecto: 'La unidad deja de estar disponible y baja del stock: no se puede vender.', bloquea: false }, ...comunes]
+    ? [
+        { tipo: 'faltante_confirmado', titulo: 'Faltante confirmado', efecto: 'La unidad deja de estar disponible y baja del stock: no se puede vender.', bloquea: false },
+        // No es un faltante: la unidad salió por una venta o despacho legítimo mientras se contaba,
+        // así que no se toca product_serials ni se penaliza el cierre.
+        { tipo: 'movimiento_posterior', titulo: 'Se movió durante el conteo', efecto: 'Otra operación (venta, transferencia, taller) movió la unidad mientras contabas. No cambia el catálogo y no bloquea el cierre. Solo aplica si el catálogo ya no la da por disponible.', bloquea: false },
+        ...comunes,
+      ]
     : [
         { tipo: 'error_escaneo', titulo: 'Error de escaneo', efecto: 'Descarta el escaneo. No cambia nada de la unidad.', bloquea: false },
         { tipo: 'corregir_ubicacion', titulo: 'Corregir ubicación', efecto: 'La unidad existe en otra sucursal: se mueve a esta, con movimiento de stock en ambas.', bloquea: false },

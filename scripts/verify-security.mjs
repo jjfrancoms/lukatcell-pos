@@ -154,5 +154,90 @@ for (const [nombre, contenido] of [
   assert(!contenido.includes('toISOString().slice(0, 10)') && !contenido.includes('toISOString().slice(0,10)'), `${nombre} no usa UTC crudo para fecha comercial (usa businessDate)`)
 }
 
+// P0.4 — el guard de la suite mutante es código de seguridad y hasta ahora
+// ninguna assertion lo protegía: se podía relajar (quitar el hardcode del
+// project ref, permitir un override sobre producción, o volver a `new URL(...)`
+// y romperlo en silencio) sin que `npm test` se enterara. Estas assertions
+// leen scripts/verify-integrity-invariants.mjs como TEXTO — no lo ejecutan —
+// para que cualquier aflojada del bloqueo rompa la suite estática.
+const guardMutante = read('scripts/verify-integrity-invariants.mjs')
+
+assert(guardMutante.includes("const PROD_SUPABASE_PROJECT_REF = 'fbwkclpgnsxuqycazumj'"),
+  'El guard mutante tiene el project ref de producción hardcodeado (fbwkclpgnsxuqycazumj)')
+assert(!/PROD_SUPABASE_PROJECT_REF\s*=\s*[^\n]*process\.env/.test(guardMutante),
+  'El project ref de producción NO se puede configurar por variable de entorno')
+
+const inicioBloqueProd = guardMutante.indexOf('if (refDestino === PROD_SUPABASE_PROJECT_REF) {')
+assert(inicioBloqueProd !== -1,
+  'El guard mutante rechaza cuando el destino es exactamente el ref de producción')
+const finBloqueProd = inicioBloqueProd === -1 ? -1 : guardMutante.indexOf('\n}', inicioBloqueProd)
+const bloqueProd = inicioBloqueProd === -1 || finBloqueProd === -1 ? '' : guardMutante.slice(inicioBloqueProd, finBloqueProd + 2)
+assert(bloqueProd.includes('process.exit(1)'),
+  'El rechazo de producción corta el proceso con exit 1')
+assert(bloqueProd !== '' && !bloqueProd.includes('process.env'),
+  'El rechazo de producción es ABSOLUTO: ninguna variable de entorno participa de esa condición')
+assert(bloqueProd !== '' && !bloqueProd.includes('permitidoExplicitamente') && !/QA_ALLOW_MUTATING_INTEGRATION_TESTS\s*===/.test(bloqueProd),
+  'QA_ALLOW_MUTATING_INTEGRATION_TESTS no puede habilitar la escritura contra producción')
+assert(!/if \(refDestino === PROD_SUPABASE_PROJECT_REF[^)]*(&&|\|\|)/.test(guardMutante),
+  'La condición del rechazo de producción no tiene escapes (&&/||) que la puedan neutralizar')
+
+assert(guardMutante.includes("process.env.QA_ALLOW_MUTATING_INTEGRATION_TESTS === 'true'"),
+  "El guard mutante exige QA_ALLOW_MUTATING_INTEGRATION_TESTS === 'true' de forma literal")
+assert(guardMutante.includes('if (!permitidoExplicitamente) {'),
+  'La escritura está prohibida sin ese flag para CUALQUIER destino, no solo para los dudosos')
+
+assert(guardMutante.includes('process.env.QA_EXPECTED_PROJECT_REF'),
+  'El guard mutante soporta QA_EXPECTED_PROJECT_REF para blindar el destino')
+assert(guardMutante.includes('refEsperado !== refDestino'),
+  'QA_EXPECTED_PROJECT_REF rechaza cuando no coincide con el destino real')
+
+// Se comparan solo las líneas de código: el propio archivo explica en un
+// comentario POR QUÉ no usa `new URL(...)`, y esa mención no debe contar.
+const guardMutanteCodigo = guardMutante.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^\\:])\/\/.*$/gm, '$1')
+assert(!guardMutanteCodigo.includes('new URL('),
+  'El parseo del project ref NO usa new URL( (el `const URL` del módulo lo sombrea y el guard fallaría en silencio)')
+assert(guardMutante.includes('function projectRefDe(') && guardMutante.includes('const URL = process.env.SUPABASE_URL'),
+  'El project ref se extrae con regex propia, coexistiendo con el `const URL` que sombrea al global')
+
+assert(conteo.includes("tipo: 'movimiento_posterior'"),
+  'El conteo serializado ofrece el tipo de diferencia movimiento_posterior')
+
+const dirMigraciones = 'supabase/migrations'
+const migraciones = fs.readdirSync(dirMigraciones)
+  .filter((f) => f.endsWith('.sql'))
+  .map((f) => ({ nombre: f, sql: read(`${dirMigraciones}/${f}`) }))
+
+assert(migraciones.some((m) => /alter table\s+(public\.)?products\s+add column\s+(if not exists\s+)?is_test/i.test(m.sql)),
+  'Existe una migración que añade products.is_test (fuente canónica de datos de prueba)')
+assert(migraciones.some((m) => /create or replace function\s+private\.sincronizar_stock_serializado\s*\(/i.test(m.sql)),
+  'Existe una migración que crea private.sincronizar_stock_serializado (stock serializado derivado de los IMEI reales)')
+
+// Todo consumidor que cuente stock desde public.inventory tiene que excluir el
+// catálogo de prueba, si no el saneamiento (que deja las filas QA en cantidad=0)
+// las convierte en "stock crítico" permanente e irresoluble. Se comprueba sobre
+// la última definición de cada función, que es la que queda vigente.
+const ultimaDefinicion = (nombre) => {
+  const conLaFuncion = migraciones
+    .filter((m) => new RegExp(`create or replace function\\s+public\\.${nombre}\\s*\\(`, 'i').test(m.sql))
+    // Orden por unidad de código, no localeCompare: el locale coloca el '_' de
+    // un nombre provisional antes de los dígitos y elegiría una definición vieja.
+    .sort((a, b) => (a.nombre < b.nombre ? -1 : a.nombre > b.nombre ? 1 : 0))
+  if (conLaFuncion.length === 0) return null
+  const sql = conLaFuncion[conLaFuncion.length - 1].sql
+  const desde = sql.search(new RegExp(`create or replace function\\s+public\\.${nombre}\\s*\\(`, 'i'))
+  // Se corta en el siguiente CREATE FUNCTION: si no, el slice arrastraría los
+  // cuerpos de las funciones siguientes y la assertion pasaría por el filtro
+  // de otra función, no por el de ésta.
+  const resto = sql.slice(desde)
+  const siguiente = resto.slice(1).search(/create or replace function/i)
+  return siguiente === -1 ? resto : resto.slice(0, siguiente + 1)
+}
+
+for (const fn of ['dashboard_operativo_admin', 'iniciar_inventario_fisico', 'inventario_valorizado_admin']) {
+  const def = ultimaDefinicion(fn)
+  assert(def !== null && /not\s+p\.is_test/i.test(def),
+    `public.${fn} excluye el catálogo de prueba (not p.is_test) al leer inventory`)
+}
+
 if (process.exitCode) process.exit(process.exitCode)
 console.log('Security regression checks passed.')

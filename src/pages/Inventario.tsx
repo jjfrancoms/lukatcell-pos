@@ -21,7 +21,10 @@ interface FilaInventario {
 
 interface Movimiento { id: string; cantidad_delta: number; motivo: string; created_at: string }
 
-const SELECT_INVENTARIO = 'variant_id, cantidad, stock_minimo, location_id, variant:product_variants(id, color, codigo_barras, modelo_celular_id, precio_override, product:products(id, nombre, sku, imagen_url, precio_base, categoria_id, activo), modelo:modelos_celular(id, marca, modelo))'
+// `!inner` en variant/product no es cosmético: sin él PostgREST anularía el embed
+// pero dejaría la fila de inventory, así que el filtro `is_test` no descartaría nada.
+// `modelo` sigue siendo left join porque una variante puede no tener modelo asociado.
+const SELECT_INVENTARIO = 'variant_id, cantidad, stock_minimo, location_id, variant:product_variants!inner(id, color, codigo_barras, modelo_celular_id, precio_override, product:products!inner(id, nombre, sku, imagen_url, precio_base, categoria_id, activo), modelo:modelos_celular(id, marca, modelo))'
 
 function generarCodigoInterno() {
   return '2' + Date.now().toString().slice(-9) + Math.floor(Math.random() * 10)
@@ -49,7 +52,9 @@ export default function Inventario() {
   const [costoEdit, setCostoEdit] = useState<Record<string, string>>({})
 
   const cargar = async () => {
-    const { data } = await supabase.from('inventory').select(SELECT_INVENTARIO).order('cantidad', { ascending: true })
+    // is_test excluye solo catálogo sintético de QA; un producto descontinuado (activo=false)
+    // con stock real debe seguir listándose para poder liquidarlo o ajustarlo.
+    const { data } = await supabase.from('inventory').select(SELECT_INVENTARIO).eq('variant.product.is_test', false).order('cantidad', { ascending: true })
     const base = ((data as unknown as FilaInventario[]) || [])
     if (!isAdmin) { setFilas(base); return }
     const { data: costos, error: costoError } = await supabase.rpc('costos_productos_admin')

@@ -4,7 +4,7 @@ Documento vivo del hardening de integridad/seguridad transaccional iniciado 2026
 Cubre lo implementado, decisiones tomadas, y lo que sigue abierto. Se actualiza a medida
 que avanzan las fases restantes (P1).
 
-## Estado: P0 AÚN ABIERTO. Ver "P0.3" al final para qué falta exactamente.
+## Estado: P0 AÚN ABIERTO. Ver "P0.4" al final para qué falta exactamente.
 
 **Advertencia sobre el historial de este documento.** Cada pasada de hardening declaró
 su propio cierre y la siguiente encontró que era prematuro:
@@ -26,6 +26,11 @@ su propio cierre y la siguiente encontró que era prematuro:
   diferible, sobre una fila de `sale_items` que todavía no existía. Verificado
   empíricamente contra producción. No explotó en vivo sólo porque nadie ha usado aún
   ese flujo. Ver la sección P0.3.
+- La ronda P0.4 encontró algo peor y **activo**: el trigger que descuenta stock en cada
+  venta no escribía nada en `inventory_movements`, así que **cerrar un conteo físico
+  después de una venta real destruía stock** (8 unidades reales quedaban en 6).
+  Demostrado con un experimento controlado. Ese camino nunca se había probado porque
+  todas las pruebas anteriores simulaban la venta con `ajustar_stock`, que sí registra.
 
 La lección registrada aquí es concreta: en este proyecto **una corrección no está
 verificada hasta que se ejerce el flujo real end-to-end**, y el estado del servidor
@@ -1212,3 +1217,140 @@ lograda en P0.2 bloque 11).
    aprobación).
 2. **Activación real de las terminales POS**: hoy hay 0 registradas, así que el gate
    multi-terminal existe pero no protege ningún cierre todavía.
+
+---
+
+# P0.4 — Cierre iterativo multiagente
+
+Fecha: 2026-09-09. Cuarta pasada, ejecutada con un equipo de agentes especializados
+(PostgreSQL/ledger, IMEI/transiciones, QA/contaminación, tests, frontend, seguridad) más
+un pase de red team, sobre el commit `e02c886`.
+
+## El hallazgo grave: las ventas no existían en el libro mayor
+
+`descontar_inventario` —el trigger que descuenta stock en cada línea de venta— **no
+escribía ninguna fila en `inventory_movements`**. No es sólo un hueco de auditoría:
+`cerrar_inventario_fisico` calcula, para productos no serializados,
+
+```
+esperado_al_contar = cantidad_sistema + sum(movimientos entre apertura y conteo)
+nuevo              = actual + (contado - esperado_al_contar)
+```
+
+Si una venta real ocurre con el conteo abierto y no deja movimiento, el esperado se queda
+en el snapshot y el cierre "corrige" el stock hacia un valor equivocado.
+
+**Experimento controlado (ambas corridas en transacción abortada, sobre el esquema real):**
+
+| | Producción antes | Con la corrección |
+|---|---|---|
+| Movimientos tras vender 2 uds | 0 | 1 (`-2`, motivo `Venta`) |
+| `esperado_al_contar` | 10 (incorrecto) | 8 (correcto) |
+| Stock real al contar | 8 | 8 |
+| **Stock tras cerrar el conteo** | **6 — se destruyen 2 unidades** | **8 — correcto** |
+
+El caso B que P0.1 dio por verificado sólo pasaba porque aquella prueba simulaba la venta
+con `ajustar_stock`, que sí registra movimiento. El camino de una venta real nunca se
+había ejercido.
+
+Corrección: el trigger registra el movimiento con el delta real (el `UPDATE` aplicó
+exactamente `new.cantidad` o ya había abortado por stock insuficiente). Efecto lateral
+positivo: antes, una anulación registraba `+N` sin el `-N` correspondiente de la venta;
+ahora el libro mayor cuadra.
+
+## Deltas inventados en el ledger
+
+Varias funciones hacían `update inventory set cantidad = greatest(0, cantidad - 1)` y
+registraban `cantidad_delta = -1`. Con `cantidad = 0` el clamp no cambia nada pero el
+ledger afirma `-1`. Regla nueva: **todo movimiento registra `cantidad_nueva -
+cantidad_anterior`**.
+
+Se centraliza en `private.sincronizar_stock_serializado(variant, location, staff, motivo)`:
+bloquea la fila agregada, cuenta los seriales `disponible` reales, alinea `inventory` a ese
+número y registra el delta real **sólo si hubo cambio** (idempotente). El wrapper `_par`
+ordena los dos `location_id` antes de bloquear, para que dos reubicaciones simultáneas en
+sentidos opuestos no puedan quedar en deadlock.
+
+Verificado: con `inventory = 0` y un serial `disponible`, resolver `faltante_confirmado`
+deja `inventory = 0` y **delta total 0**, no `-1`. Segunda llamada seguida: delta `0`.
+
+## Matriz de transiciones de IMEI
+
+`resolver_reconciliacion_serial` no miraba el estado anterior del serial: un IMEI
+`vendido` podía pasar a `faltante` o `baja` desde un conteo, y un `baja` podía revivir.
+Era la única función del sistema que cambiaba `product_serials.estado` sin llevar el estado
+previo en el `WHERE`.
+
+| Origen | Resoluciones permitidas |
+|---|---|
+| `disponible` | corregir_ubicacion, cuarentena, faltante_confirmado, baja, investigacion |
+| `cuarentena` | baja, investigacion (+ movimiento_posterior) |
+| `faltante` | cuarentena, baja, investigacion (+ movimiento_posterior) |
+| `investigacion` | cuarentena, faltante_confirmado, baja (+ movimiento_posterior) |
+| `servicio` | cuarentena (+ movimiento_posterior) |
+| `vendido`, `en_transito`, `baja` | sólo movimiento_posterior / error_escaneo |
+
+Ninguna ruta devuelve un serial a `disponible`: la única puerta de regreso sigue siendo
+cuarentena + `resolver_cuarentena_serial` (admin). Los rechazos redirigen al flujo correcto
+("Este IMEI figura como vendido; usa el flujo de devolución o de anulación de venta").
+
+**`movimiento_posterior`**: el conteo queda abierto mientras el POS sigue vendiendo, así
+que un serial esperado puede venderse o despacharse a mitad del conteo. Sin una salida para
+ese caso la fila queda irresoluble y el conteo no cierra nunca. Este tipo la resuelve sin
+tocar el catálogo y sin bloquear. **No puede usarse para tapar un faltante**: se rechaza si
+el catálogo todavía dice `disponible`, que es justamente el caso de una unidad que debería
+estar y no está.
+
+## Datos QA que seguían contando como negocio real
+
+| | Antes | Después |
+|---|---|---|
+| Filas `inventory` QA | 8 | 8 (conservadas) |
+| Unidades QA en stock | **66** | **0** |
+| Valor QA en valorización | **S/ 3 300** | **S/ 0** |
+| Líneas QA en un conteo nuevo | 8 | **0** |
+
+Identidad canónica única: `products.is_test`. **No** se usó `activo`: un producto
+descontinuado con stock físico real es legítimo y debe seguir contándose. Las 66 unidades
+se llevaron a 0 registrando el delta real por fila (`-9` ×7 y `-3` ×1), sin borrar
+ninguna fila ni ningún movimiento histórico.
+
+Excluyen QA ahora: `iniciar_inventario_fisico`, `inventario_valorizado_admin`,
+`reconciliacion_seriales_admin`, `dashboard_operativo_admin` (stock crítico),
+`generar_alertas_operativas_admin`, y en el frontend `Inventario`, `Compras`,
+`Transferencias` y `ComparadorProveedores`. **No** se filtró `reportes_avanzados_admin`
+(parte de `sales`, que ya filtra `is_test`) ni las RPC puntuales de operación
+(`ajustar_stock`, `registrar_venta`…), que operan sobre un `variant_id` dado y filtrarlas
+rompería la propia suite de pruebas sin aportar nada.
+
+## Hallazgos del red team sobre el propio trabajo de P0.4
+
+| ID | Hallazgo | Estado |
+|---|---|---|
+| R1 | `product_variants.product_id` era **NULLABLE**, y todos los filtros nuevos (y los embeds `!inner` del frontend) hacen join a `products`: una variante sin producto habría desaparecido en silencio del conteo, la valorización y el listado de inventario, **ocultando stock real**. Hoy hay 0 filas así, así que se añade `NOT NULL` y la clase de bug desaparece de raíz. | Corregido |
+| R2 | `sincronizar_stock_serializado` sin guarda de `control_serial`: llamarla sobre una variante no serializada habría puesto su `inventory` en 0 (el número de seriales disponibles), **borrando stock real**. Verificado: con la guarda, 25 unidades quedan intactas. | Corregido |
+| R3 | La matriz dejaba un **callejón sin salida**: un serial esperado que pasa a `servicio` durante el conteo no admitía ninguna resolución (0 opciones válidas) y el conteo no podría cerrarse jamás. Se amplía `movimiento_posterior` a cualquier estado que ya no sea `disponible`. Verificado: 0 estados sin salida. | Corregido |
+| R4 | `dashboard_operativo_admin` contaba el stock crítico leyendo `inventory` **sin mirar el catálogo**, y el filtro se había perdido al reescribir la migración. El saneamiento habría **empeorado** el indicador: las 8 filas QA quedan en `cantidad = 0` y `0 <= stock_minimo` es cierto siempre, así que el dashboard pasaba de 1 crítico a **8 críticos permanentes e irresolubles** — nadie puede reponer un producto que no existe. Medido en ensayo: 8 sin filtro, **0** con filtro. | Corregido |
+
+## Bloqueo externo: no hay entorno de staging
+
+`supabase start` falla con evidencia exacta:
+
+```
+LegacyDockerLifecycleInspectError: failed to inspect container health:
+docker: command not found (podman also not found)
+```
+
+No hay Docker, Podman ni Postgres local en la máquina. Crear un proyecto Supabase remoto
+tampoco es posible (plan free, límite de 2 proyectos activos, ambos ocupados), y
+`diteon-staging` es un sistema ajeno que no se toca. `dblink` está disponible pero no
+utilizable (`password or GSSAPI delegated credentials required`).
+
+**En su lugar** todo se validó con **transacciones abortadas contra el esquema real de
+producción**: se aplican las migraciones, se monta el escenario, se afirma, y un
+`raise exception` final aborta la transacción entera. Se verificó tras cada corrida que no
+quedó residuo y que `sales_numero_seq` no avanzó (se insertan `numero` explícitos).
+
+Qué cubre: los triggers y funciones reales con contexto `auth.uid()` realista, sobre el
+esquema real. **Qué no cubre**: la capa PostgREST tal como la llama el frontend,
+concurrencia real entre sesiones simultáneas (requiere dos conexiones), y el frontend.

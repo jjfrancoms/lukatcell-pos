@@ -10,6 +10,7 @@
     "test": "node scripts/verify-security.mjs && node scripts/verify-elite-wave2.mjs && node scripts/verify-p0.mjs && node scripts/verify-elite-p1.mjs && node scripts/verify-elite-p2.mjs && node scripts/verify-release.mjs && node scripts/verify-navigation.mjs",
     "test:integration": "node scripts/verify-integrity-invariants.mjs",
     "test:production:readonly": "node scripts/verify-production-readonly.mjs",
+    "verify:production-release": "node scripts/verify-production-release.mjs",
     "quality:local": "npm test && npm run lint && npm run build",
     "preview": "vite preview"
   },

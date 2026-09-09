@@ -13,6 +13,12 @@
 //   QA_STAFF_ID             staff.id de esa cuenta (uuid)
 //   QA_LOCATION_ID          location_id (sucursal) de esa cuenta
 //
+// Y estas dos, que gobiernan el bloqueo de destino (ver bloque de guards):
+//   QA_ALLOW_MUTATING_INTEGRATION_TESTS  debe valer 'true' SIEMPRE, sea cual
+//                                        sea el proyecto destino
+//   QA_EXPECTED_PROJECT_REF (opcional)   si se define, el project ref del
+//                                        destino debe coincidir exactamente
+//
 // La cuenta de prueba debe tener rol='administrador' — la mayoría de
 // tablas de catálogo/inventario (products, product_variants, inventory)
 // solo aceptan escritura directa de un admin vía RLS (`private.auth_is_
@@ -30,7 +36,9 @@
 //
 // Si faltan variables de entorno, el script termina con código 0 y un
 // aviso — para que un `npm run test:integration` accidental en un entorno
-// sin credenciales no se reporte como una regresión real.
+// sin credenciales no se reporte como una regresión real. La excepción es
+// SUPABASE_URL: sin ella no se puede saber CONTRA QUÉ se iba a escribir, y
+// eso no puede degradar a un SKIP silencioso (ver guards más abajo).
 //
 // Limpieza de datos de prueba: products/product_variants/inventory/
 // cash_sessions SIN historial se borran solos al terminar. Pero sales,
@@ -70,6 +78,23 @@ function projectRefDe(url) {
 
 const refDestino = projectRefDe(process.env.SUPABASE_URL)
 const permitidoExplicitamente = process.env.QA_ALLOW_MUTATING_INTEGRATION_TESTS === 'true'
+// Se normaliza con trim porque el valor típico viene de un .env o de un
+// `export` a mano: un espacio final invisible convertiría el guard opcional
+// en un rechazo incomprensible ("abc" !== "abc ") justo cuando el operador
+// hizo lo correcto.
+const refEsperado = String(process.env.QA_EXPECTED_PROJECT_REF || '').trim()
+
+// Todos los rechazos salen por acá para que el operador reciba siempre las
+// tres mismas piezas: qué se bloqueó, por qué, y qué hacer a continuación.
+// Un REFUSED sin la última línea termina en alguien "probando cosas" con
+// variables de entorno hasta que algo corre, que es el escenario peligroso.
+function rechazar(motivo, comoDesbloquear) {
+  console.error('REFUSED: mutating integration tests cannot run against this target')
+  console.error(motivo)
+  console.error(comoDesbloquear)
+  console.error('Para verificar producción sin escribir nada, usa: npm run test:production:readonly')
+  process.exit(1)
+}
 
 // P0.3 bloque 10: contra PRODUCCIÓN el rechazo es ABSOLUTO — no hay override.
 // Antes, QA_ALLOW_MUTATING_INTEGRATION_TESTS=true alcanzaba para saltarse el
@@ -86,16 +111,51 @@ if (refDestino === PROD_SUPABASE_PROJECT_REF) {
   process.exit(1)
 }
 
-if (!permitidoExplicitamente && refDestino === null) {
-  // Falla cerrado: si SUPABASE_URL no se puede interpretar, se asume lo peor.
-  console.error('REFUSED: mutating integration tests cannot run against production')
-  console.error(refDestino === null
-    ? `No se pudo determinar el proyecto destino desde SUPABASE_URL (${process.env.SUPABASE_URL || 'vacío'}); por seguridad se asume producción.`
-    : `SUPABASE_URL apunta al proyecto de producción (${PROD_SUPABASE_PROJECT_REF}). Esta suite crea ventas, cajas, seriales y conteos reales — varias de esas tablas son append-only y NO se pueden dejar como estaban.`)
-  console.error('Si de verdad quieres correrla ahí (con pleno conocimiento del residuo permanente que deja), exporta QA_ALLOW_MUTATING_INTEGRATION_TESTS=true explícitamente.')
-  console.error('Para verificar producción sin escribir nada, usa: npm run test:production:readonly')
-  process.exit(1)
+// Falla CERRADO: si no se pudo leer el ref, no se sabe contra qué se iba a
+// escribir. La tentación es degradarlo al SKIP de "faltan credenciales", pero
+// una SUPABASE_URL malformada (un proxy, una IP, un typo que borró el
+// subdominio) puede seguir resolviendo a producción — desconocido se trata
+// como producción, nunca como "seguro". Este chequeo va ANTES del flag a
+// propósito: el flag no es una respuesta válida a "no sé dónde estoy".
+if (refDestino === null) {
+  rechazar(
+    `No se pudo determinar el proyecto destino desde SUPABASE_URL (${process.env.SUPABASE_URL || 'vacío'}); por seguridad se asume producción.`,
+    'Corrige SUPABASE_URL a la forma https://<project-ref>.supabase.co del proyecto de staging/QA. Ningún flag habilita un destino ilegible.',
+  )
 }
+
+// El flag es obligatorio SIEMPRE, no solo cuando el destino es dudoso. Antes
+// un ref legible y distinto de producción corría solo: bastaba un .env de
+// otro proyecto (o el staging de otro cliente) para que una suite que CREA
+// ventas, cajas y seriales arrancara sin que nadie hubiera dicho "sí". Que la
+// escritura sea siempre un acto deliberado es el punto entero del flag.
+if (!permitidoExplicitamente) {
+  rechazar(
+    `SUPABASE_URL apunta al proyecto '${refDestino}'. Esta suite CREA datos reales (ventas, cajas, movimientos, seriales, conteos) y varias de esas tablas son append-only: lo que escriba ahí no se puede deshacer.`,
+    "Si ese proyecto es efectivamente de staging/QA y aceptas el residuo permanente, exporta QA_ALLOW_MUTATING_INTEGRATION_TESTS=true explícitamente.",
+  )
+}
+
+// Guard opcional de "destino esperado": el flag de arriba autoriza escribir,
+// pero no dice DÓNDE. Con un .env viejo o un export olvidado se puede tener
+// permiso legítimo y aun así apuntar al proyecto equivocado (el staging de
+// otro cliente sigue siendo datos de alguien). Fijar QA_EXPECTED_PROJECT_REF
+// en el runner de CI convierte ese error silencioso en un rechazo.
+if (refEsperado && refEsperado !== refDestino) {
+  rechazar(
+    `QA_EXPECTED_PROJECT_REF exige el proyecto '${refEsperado}', pero SUPABASE_URL apunta a '${refDestino}'.`,
+    'Apunta SUPABASE_URL al proyecto esperado, o corrige QA_EXPECTED_PROJECT_REF si el destino nuevo es el correcto.',
+  )
+}
+
+if (!refEsperado) {
+  // Aviso, no bloqueo: exigirlo rompería a quien ya corre esto a mano contra
+  // su staging. Pero sin él el único filtro de destino es "no es producción",
+  // y eso deja pasar cualquier otro proyecto Supabase del mundo.
+  console.warn(`WARN: QA_EXPECTED_PROJECT_REF no está definida — no se está verificando que '${refDestino}' sea el proyecto que esperabas. Defínela para blindar el destino.`)
+}
+
+console.log(`Destino autorizado: proyecto '${refDestino}' (no es producción, QA_ALLOW_MUTATING_INTEGRATION_TESTS=true${refEsperado ? `, coincide con QA_EXPECTED_PROJECT_REF` : ''}).`)
 
 const required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'QA_STAFF_EMAIL', 'QA_STAFF_PASSWORD', 'QA_STAFF_ID', 'QA_LOCATION_ID']
 const missing = required.filter((k) => !process.env[k])

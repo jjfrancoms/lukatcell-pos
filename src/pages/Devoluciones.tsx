@@ -26,7 +26,7 @@ export default function Devoluciones() {
   const cargar = async (manual = false) => {
     manual ? setRefreshing(true) : setLoading(true)
     const [v, d] = await Promise.all([
-      supabase.from('sales').select('id,numero,fecha,total,estado,cajero:staff!sales_cajero_id_fkey(nombre)').eq('estado', 'completada').order('fecha', { ascending: false }).limit(200),
+      supabase.from('sales').select('id,numero,fecha,total,estado,cajero:staff!sales_cajero_id_fkey(nombre)').eq('estado', 'completada').eq('is_test', false).order('fecha', { ascending: false }).limit(200),
       supabase.from('devoluciones').select('id,sale_id,tipo,motivo,monto,estado,reembolso_estado,reembolso_metodo,reembolso_referencia,created_at,venta:sales(numero),creador:staff!devoluciones_creado_por_fkey(nombre)').order('created_at', { ascending: false }).limit(200),
     ])
     if (v.error || d.error) showToast('No se pudo cargar devoluciones', 'error')

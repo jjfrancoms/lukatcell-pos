@@ -30,6 +30,7 @@ export default function ConteoInventario() {
   const [pendientesSeriales, setPendientesSeriales] = useState<SerialPendiente[]>([])
   const [resolviendo, setResolviendo] = useState<SerialPendiente | null>(null)
   const [resolucionTexto, setResolucionTexto] = useState('')
+  const [tipoResolucion, setTipoResolucion] = useState('')
   const puedeContar = isAdmin || ['tecnico', 'encargado', 'jefa'].includes(staff?.puesto || '')
   const puedeCerrar = isAdmin || ['encargado', 'jefa'].includes(staff?.puesto || '')
 
@@ -76,10 +77,15 @@ export default function ConteoInventario() {
   }
 
   const resolver = async () => {
-    if (!resolviendo || resolucionTexto.trim().length < 3) return
-    const { error } = await supabase.rpc('resolver_reconciliacion_serial', { p_item_id: resolviendo.id, p_resolucion: resolucionTexto.trim() })
+    if (!resolviendo || !tipoResolucion) return
+    const { data, error } = await supabase.rpc('resolver_reconciliacion_serial', {
+      p_item_id: resolviendo.id, p_tipo: tipoResolucion, p_nota: resolucionTexto.trim() || null,
+    })
     if (error) { showToast(error.message, 'error'); return }
-    setResolviendo(null); setResolucionTexto(''); showToast('Reconciliación resuelta', 'success'); await load()
+    const r = data as { efecto: string; bloquea_cierre: boolean } | null
+    setResolviendo(null); setResolucionTexto(''); setTipoResolucion('')
+    showToast(r?.bloquea_cierre ? `Registrado, pero sigue bloqueando el cierre: ${r.efecto}` : `Resuelto — ${r?.efecto ?? ''}`, r?.bloquea_cierre ? 'info' : 'success')
+    await load()
   }
 
   const cerrar = async () => {
@@ -205,18 +211,46 @@ export default function ConteoInventario() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-[#161b22] rounded-2xl w-full max-w-sm p-5 border border-[#30363d]">
             <h3 className="font-bold text-white mb-1">Resolver: {resolviendo.serial_number}</h3>
-            <p className="text-xs text-gray-500 mb-3">{resolviendo.esperado && !resolviendo.encontrado ? 'Faltante — indica qué pasó con esta unidad.' : 'Inesperado — indica cómo se explica este serial.'}</p>
-            <textarea value={resolucionTexto} onChange={(e) => setResolucionTexto(e.target.value)} placeholder="Ej: ubicación corregida, recepción omitida, cuarentena, error de escaneo..."
-              className="input-personal w-full text-sm mb-3" rows={3} />
+            <p className="text-xs text-gray-500 mb-3">{resolviendo.esperado && !resolviendo.encontrado ? 'Faltante — el sistema lo esperaba aquí y no apareció.' : 'Inesperado — apareció físicamente sin estar en la lista esperada.'}</p>
+            <div className="space-y-1.5 mb-3">
+              {opcionesResolucion(resolviendo).map((o) => (
+                <button key={o.tipo} onClick={() => setTipoResolucion(o.tipo)}
+                  className={`w-full text-left rounded-xl border px-3 py-2 transition-colors ${tipoResolucion === o.tipo ? 'border-cyan-500 bg-cyan-500/10' : 'border-[#30363d] bg-[#0d1117] hover:border-gray-600'}`}>
+                  <p className="text-xs font-semibold text-white">{o.titulo}{o.bloquea && <span className="ml-1.5 text-[9px] uppercase text-orange-400">no cierra</span>}</p>
+                  <p className="text-[10px] text-gray-500 mt-0.5">{o.efecto}</p>
+                </button>
+              ))}
+            </div>
+            <textarea value={resolucionTexto} onChange={(e) => setResolucionTexto(e.target.value)} placeholder="Nota (opcional): detalle de lo que pasó"
+              className="input-personal w-full text-sm mb-3" rows={2} />
             <div className="flex gap-2">
-              <button onClick={() => { setResolviendo(null); setResolucionTexto('') }} className="flex-1 bg-[#21262d] text-gray-300 font-semibold py-2 rounded-xl text-sm">Cancelar</button>
-              <button onClick={resolver} disabled={resolucionTexto.trim().length < 3} className="flex-1 bg-cyan-500 text-black font-bold py-2 rounded-xl text-sm disabled:opacity-40">Guardar</button>
+              <button onClick={() => { setResolviendo(null); setResolucionTexto(''); setTipoResolucion('') }} className="flex-1 bg-[#21262d] text-gray-300 font-semibold py-2 rounded-xl text-sm">Cancelar</button>
+              <button onClick={resolver} disabled={!tipoResolucion} className="flex-1 bg-cyan-500 text-black font-bold py-2 rounded-xl text-sm disabled:opacity-40">Aplicar</button>
             </div>
           </div>
         </div>
       )}
     </div>
   )
+}
+
+// Espeja exactamente las reglas de resolver_reconciliacion_serial: cada
+// opción dice qué le pasa de verdad a la unidad, no solo qué texto se guarda.
+function opcionesResolucion(s: SerialPendiente) {
+  const faltante = s.esperado && !s.encontrado
+  const comunes = [
+    { tipo: 'cuarentena', titulo: 'Enviar a cuarentena', efecto: 'La unidad queda no vendible hasta revisarla; baja del stock.', bloquea: false },
+    { tipo: 'investigacion', titulo: 'Abrir investigación', efecto: 'Marca la unidad en investigación y baja del stock. Impide cerrar el conteo hasta darle un desenlace.', bloquea: true },
+    { tipo: 'baja', titulo: 'Dar de baja', efecto: 'Retira la unidad definitivamente del inventario. Solo administración.', bloquea: false },
+  ]
+  return faltante
+    ? [{ tipo: 'faltante_confirmado', titulo: 'Faltante confirmado', efecto: 'La unidad deja de estar disponible y baja del stock: no se puede vender.', bloquea: false }, ...comunes]
+    : [
+        { tipo: 'error_escaneo', titulo: 'Error de escaneo', efecto: 'Descarta el escaneo. No cambia nada de la unidad.', bloquea: false },
+        { tipo: 'corregir_ubicacion', titulo: 'Corregir ubicación', efecto: 'La unidad existe en otra sucursal: se mueve a esta, con movimiento de stock en ambas.', bloquea: false },
+        { tipo: 'recepcion_omitida', titulo: 'Recepción omitida', efecto: 'No inventa stock: hay que registrar la recepción real. Impide cerrar el conteo.', bloquea: true },
+        ...comunes,
+      ]
 }
 
 function Card({ n, t, alerta }: { n: number; t: string; alerta?: boolean }) {

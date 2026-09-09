@@ -68,7 +68,7 @@ export default function Reportes() {
 
   useEffect(() => {
     const hoy = startOfBusinessDayLima()
-    supabase.from('sales').select('id, numero, fecha, total, estado').order('fecha', { ascending: false }).limit(200)
+    supabase.from('sales').select('id, numero, fecha, total, estado').eq('is_test', false).order('fecha', { ascending: false }).limit(200)
       .then(async ({ data }) => {
         const filas: VentaFila[] = data || []
         const vh = filas.filter((v) => new Date(v.fecha) >= hoy)

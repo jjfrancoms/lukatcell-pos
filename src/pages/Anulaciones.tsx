@@ -36,6 +36,7 @@ export default function Anulaciones() {
     const { data, error } = await supabase
       .from('sales')
       .select('id,numero,fecha,total,estado,anulada_at,anulacion_motivo,cajero:staff!sales_cajero_id_fkey(nombre),comprobante:comprobantes_electronicos(id,estado,tipo_comprobante,serie,numero)')
+      .eq('is_test', false)
       .order('fecha', { ascending: false })
       .limit(250)
 

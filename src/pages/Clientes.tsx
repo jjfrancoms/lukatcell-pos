@@ -128,7 +128,7 @@ function ModalDetalleCliente({ cliente, onClose, onSaved }: { cliente: Cliente; 
   const [guardando, setGuardando] = useState(false)
 
   useEffect(() => {
-    supabase.from('sales').select('id, fecha, total').eq('cliente_id', cliente.id).order('fecha', { ascending: false }).limit(15)
+    supabase.from('sales').select('id, fecha, total').eq('cliente_id', cliente.id).eq('is_test', false).order('fecha', { ascending: false }).limit(15)
       .then(({ data }) => setHistorial(data || []))
   }, [cliente.id])
 

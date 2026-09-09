@@ -71,7 +71,22 @@ function projectRefDe(url) {
 const refDestino = projectRefDe(process.env.SUPABASE_URL)
 const permitidoExplicitamente = process.env.QA_ALLOW_MUTATING_INTEGRATION_TESTS === 'true'
 
-if (!permitidoExplicitamente && (refDestino === PROD_SUPABASE_PROJECT_REF || refDestino === null)) {
+// P0.3 bloque 10: contra PRODUCCIÓN el rechazo es ABSOLUTO — no hay override.
+// Antes, QA_ALLOW_MUTATING_INTEGRATION_TESTS=true alcanzaba para saltarse el
+// bloqueo incluso apuntando a producción, o sea que la única barrera real era
+// que nadie exportara esa variable "para probar una cosita". Ahora esa
+// variable SÓLO sirve para habilitar escritura en un proyecto que NO es
+// producción; sobre producción no la mira nadie. Tampoco NODE_ENV, ni CI, ni
+// el usuario: no existe combinación de entorno que lo permita.
+if (refDestino === PROD_SUPABASE_PROJECT_REF) {
+  console.error('REFUSED: mutating integration tests cannot run against production')
+  console.error(`SUPABASE_URL apunta al proyecto de producción (${PROD_SUPABASE_PROJECT_REF}). Esta suite crea ventas, cajas, seriales y conteos reales, y varias de esas tablas son append-only: no hay forma de dejar producción como estaba.`)
+  console.error('No hay override: QA_ALLOW_MUTATING_INTEGRATION_TESTS NO habilita este caso. Usa un proyecto de staging.')
+  console.error('Para verificar producción sin escribir nada, usa: npm run test:production:readonly')
+  process.exit(1)
+}
+
+if (!permitidoExplicitamente && refDestino === null) {
   // Falla cerrado: si SUPABASE_URL no se puede interpretar, se asume lo peor.
   console.error('REFUSED: mutating integration tests cannot run against production')
   console.error(refDestino === null

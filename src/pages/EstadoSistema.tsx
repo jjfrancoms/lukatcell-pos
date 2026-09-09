@@ -1,13 +1,17 @@
 import { useEffect,useState } from 'react'
-import { Activity,RefreshCw,ShieldCheck,ShieldAlert,MessageCircle,Users,Wallet } from 'lucide-react'
+import { Activity,RefreshCw,ShieldCheck,ShieldAlert,MessageCircle,Users,Wallet,MonitorSmartphone,AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../lib/toast'
 
 type Health={public_tables:number;tables_without_rls:number;anon_tables:number;anon_secdef:number;whatsapp_pendientes:number;whatsapp_fallidos:number;notificaciones_no_leidas:number;solicitudes_personal_pendientes:number;conciliaciones_pendientes:number;healthy:boolean}
+// El gate multi-terminal del cierre diario sólo protege sucursales cuyas
+// terminales se hayan registrado por heartbeat. Con 0 registradas el gate
+// existe pero no cubre nada, y eso tiene que ser visible.
+type Terminales={total_terminales:number;con_ventas_pendientes:unknown[];con_ventas_fallidas:unknown[];sin_reportar:unknown[]}
 
 export default function EstadoSistema(){
- const {showToast}=useToast();const [health,setHealth]=useState<Health|null>(null),[loading,setLoading]=useState(true)
- const load=async()=>{setLoading(true);const {data,error}=await supabase.rpc('release_health_admin');setLoading(false);if(error){showToast(error.message,'error');return}const row=Array.isArray(data)?data[0]:data;setHealth((row as Health)||null)}
+ const {showToast}=useToast();const [health,setHealth]=useState<Health|null>(null),[terminales,setTerminales]=useState<Terminales|null>(null),[loading,setLoading]=useState(true)
+ const load=async()=>{setLoading(true);const [h,t]=await Promise.all([supabase.rpc('release_health_admin'),supabase.rpc('estado_terminales_sucursal')]);setLoading(false);if(h.error){showToast(h.error.message,'error');return}const row=Array.isArray(h.data)?h.data[0]:h.data;setHealth((row as Health)||null);setTerminales((t.data as Terminales)||null)}
  useEffect(()=>{void load()},[])
  const securityOk=Boolean(health&&health.tables_without_rls===0&&health.anon_tables===0&&health.anon_secdef===0)
  return <div className="p-3 md:p-5 max-w-6xl mx-auto space-y-5">
@@ -15,6 +19,7 @@ export default function EstadoSistema(){
   {health&&<><div className={`rounded-2xl border p-5 ${health.healthy?'border-green-500/25 bg-green-500/10':'border-red-500/25 bg-red-500/10'}`}><div className="flex items-start gap-3">{health.healthy?<ShieldCheck size={22} className="text-green-400"/>:<ShieldAlert size={22} className="text-red-400"/>}<div><p className={`font-bold ${health.healthy?'text-green-300':'text-red-300'}`}>{health.healthy?'Seguridad base lista para release':'Hay bloqueadores de seguridad'}</p><p className="text-xs text-gray-500 mt-1">Este indicador valida RLS, acceso directo de anon y funciones SECURITY DEFINER expuestas.</p></div></div></div>
   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><Metric label="Tablas públicas" value={health.public_tables}/><Metric label="Sin RLS" value={health.tables_without_rls} alert={health.tables_without_rls>0}/><Metric label="Tablas para anon" value={health.anon_tables} alert={health.anon_tables>0}/><Metric label="SECDEF para anon" value={health.anon_secdef} alert={health.anon_secdef>0}/></div>
   <div className="grid md:grid-cols-3 gap-3"><Queue icon={MessageCircle} label="WhatsApp" main={`${health.whatsapp_pendientes} pendiente(s)`} sub={`${health.whatsapp_fallidos} fallido(s)`} alert={health.whatsapp_fallidos>0}/><Queue icon={Users} label="Personal" main={`${health.solicitudes_personal_pendientes} solicitud(es)`} sub={`${health.notificaciones_no_leidas} notificación(es) sin leer`}/><Queue icon={Wallet} label="Conciliación" main={`${health.conciliaciones_pendientes} pendiente(s)`} sub="Pagos por revisar"/></div>
+  {terminales&&<section className={`rounded-2xl border p-4 ${terminales.total_terminales===0?'border-orange-500/30 bg-orange-500/5':'border-[#30363d] bg-[#161b22]'}`}><div className="flex items-start gap-3"><MonitorSmartphone size={18} className={terminales.total_terminales===0?'text-orange-400':'text-cyan-400'}/><div className="min-w-0"><h2 className="text-sm font-bold text-white">Terminales POS registradas: {terminales.total_terminales}</h2>{terminales.total_terminales===0?<p className="text-xs text-orange-300 mt-1 inline-flex items-start gap-1.5"><AlertTriangle size={13} className="shrink-0 mt-0.5"/><span>No se ha registrado ninguna terminal POS. El control global de ventas offline todavía no está activo: el cierre diario no puede saber si otra terminal tiene ventas sin sincronizar. Cada terminal se registra sola la primera vez que el POS sincroniza estando conectado.</span></p>:<p className="text-xs text-gray-500 mt-1">El cierre diario bloquea la aprobación si alguna reporta ventas pendientes, fallidas o lleva más de 2 horas sin reportar.</p>}</div></div></section>}
   <section className="rounded-2xl border border-[#30363d] bg-[#161b22] p-4"><h2 className="text-sm font-bold text-white">Checklist de release</h2><div className="mt-3 grid sm:grid-cols-2 gap-2 text-xs"><Check ok={securityOk} text="RLS y superficie anon limpias"/><Check ok={health.whatsapp_fallidos===0} text="Sin fallos pendientes de WhatsApp"/><Check ok={health.conciliaciones_pendientes===0} text="Sin conciliaciones pendientes"/><Check ok={health.solicitudes_personal_pendientes===0} text="Sin solicitudes de personal pendientes"/></div><p className="text-[10px] text-gray-600 mt-3">El merge sigue requiriendo además GitHub Actions verde. Hardware físico y credenciales externas se validan por separado.</p></section></>}
   {!health&&!loading&&<div className="rounded-2xl border border-[#30363d] bg-[#161b22] p-10 text-center text-sm text-gray-500">No se pudo obtener el estado del sistema.</div>}
  </div>

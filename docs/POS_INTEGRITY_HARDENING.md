@@ -4,7 +4,7 @@ Documento vivo del hardening de integridad/seguridad transaccional iniciado 2026
 Cubre lo implementado, decisiones tomadas, y lo que sigue abierto. Se actualiza a medida
 que avanzan las fases restantes (P1).
 
-## Estado: P0 AÚN ABIERTO. Ver "P0.2" al final para qué falta exactamente.
+## Estado: P0 AÚN ABIERTO. Ver "P0.3" al final para qué falta exactamente.
 
 **Advertencia sobre el historial de este documento.** Cada pasada de hardening declaró
 su propio cierre y la siguiente encontró que era prematuro:
@@ -21,6 +21,11 @@ su propio cierre y la siguiente encontró que era prematuro:
   (una sobrecarga ambigua de `registrar_venta` que rompió las ventas con promoción en
   producción, y 8 funciones expuestas a `anon`) que no detectó ningún test sino una
   revisión manual al final. Ver "Regresiones que introdujo el propio pase P0.2".
+- La ronda P0.3 encontró que P0.2 había dejado **el flujo de autorización de descuento
+  totalmente roto**: el `BEFORE INSERT` escribía `sale_item_id` contra una FK no
+  diferible, sobre una fila de `sale_items` que todavía no existía. Verificado
+  empíricamente contra producción. No explotó en vivo sólo porque nadie ha usado aún
+  ese flujo. Ver la sección P0.3.
 
 La lección registrada aquí es concreta: en este proyecto **una corrección no está
 verificada hasta que se ejerce el flujo real end-to-end**, y el estado del servidor
@@ -979,3 +984,231 @@ servidor**: ningún test estático del repo podía verlas.
 3. **Verificación del deployment en Vercel.** La cuenta Vercel conectada a esta sesión no
    tiene acceso a este proyecto (`list_projects` falla), así que no se pudo confirmar que
    el commit final haya desplegado bien.
+
+---
+
+# P0.3 — Correcciones post-auditoría externa
+
+Fecha: 2026-09-08/09. Cuarta pasada, sobre el commit `826415f` (ya desplegado en Vercel
+con éxito y CI en verde).
+
+## 1. FK de autorización en BEFORE INSERT (crítico)
+
+`validar_linea_venta_catalogo` corre `BEFORE INSERT ON sale_items` y hacía:
+
+```sql
+update autorizaciones_operativas
+set estado='consumida', consumed_at=now(), sale_item_id = new.id
+where id = v_auth_id;
+```
+
+`autorizaciones_operativas_sale_item_id_fkey → sale_items(id)` **no es DEFERRABLE**. En un
+`BEFORE INSERT`, `NEW.id` ya tiene UUID pero la fila de `sale_items` todavía no existe, así
+que la FK se valida de inmediato y falla. Verificado empíricamente contra producción (con
+rollback): *FK VIOLATION CONFIRMADA*.
+
+**El impacto era total, no teórico.** `descuento_vendedor_max_pct = 0.00`, o sea que
+cualquier descuento de un cajero no-admin exige autorización; ése era el único camino
+posible y estaba roto desde P0.2. No explotó en vivo únicamente porque
+`autorizaciones_operativas` está vacía: nadie ha usado todavía el flujo en producción.
+
+**Orden final, todo en una sola transacción:**
+
+```text
+BEFORE INSERT   valida (cajero, sucursal, variante, %, monto, estado) con FOR UPDATE
+                marca estado='consumida' + consumed_at   ← NO toca sale_item_id
+INSERT          la fila de sale_items pasa a existir
+AFTER INSERT    vincular_autorizacion_descuento escribe sale_item_id = NEW.id
+                y falla ruidosamente si no logra vincular exactamente 1 fila
+COMMIT
+```
+
+Si algo falla en cualquier punto posterior, el ROLLBACK revierte `estado`, `consumed_at` y
+`sale_item_id` juntos, porque nunca hubo una transacción aparte.
+
+Se limpia además `autorizacion_id` en la ruta de administrador y en la de
+descuento-sin-autorización, para que un cliente no pueda inyectar un vínculo que nunca se
+validó.
+
+**Verificado contra producción (todo con rollback, sin residuo, sin quemar correlativos):**
+venta OK → consumida + vinculada al `sale_item` real; venta que falla después → vuelve a
+`aprobada`; reutilizar una consumida → rechazada; otra variante → rechazada; otro cajero →
+rechazada; otra sucursal → rechazada.
+
+## 2. Promoción acumulable vs no acumulable
+
+El techo era `greatest(promo, manual) + manual`, que con una promoción **no acumulable** de
+10% y límite de vendedor 5% aceptaba ~15%. Estaba latente porque el límite es 0%, pero se
+activaba el día que alguien lo subiera.
+
+Regla final (la misma que el frontend ya aplicaba):
+
+| Caso | Permitido sin autorización |
+|---|---|
+| Promoción **acumulable** | `promo + manual` |
+| Promoción **no acumulable** | `max(promo, manual)` |
+
+**Verificado con límite temporal de 5% (revertido por el rollback):** no acumulable 10% →
+aceptado; no acumulable 15% → rechazado; acumulable 15% → aceptado; acumulable 20% →
+rechazado.
+
+`acumulable` se lee de `promociones` por PK con el `promocion_id` ya validado contra el
+techo canónico, en vez de agregarlo a `venta_promo_ceiling`: eso habría obligado a
+regenerar `registrar_venta` entera, que es justo lo que introdujo la sobrecarga ambigua en
+P0.2. Mismo valor, misma transacción, sin volver a tocar la función más peligrosa.
+
+## 3 y 4. Cajas QA: `cash_sessions.is_test`
+
+P0.2 marcó las 5 **ventas** de prueba pero no sus **cajas**. Quedaban 5 `cash_sessions` de
+la cuenta QA: 4 cerradas con −S/50 cada una y **1 todavía abierta**, que además podía
+bloquear el cierre diario real ("no puedes cerrar el día mientras existan cajas abiertas").
+
+`resumen_cierre_diario` ya excluía `is_test` para ventas y pagos, pero su bloque de cajas
+leía `cash_sessions` sin distinguir.
+
+- Se agregan `cash_sessions.is_test` y `test_motivo`.
+- Se marcan las 5 **por ID explícito** — no se infiere "es de prueba" en runtime por nombre
+  de usuario: sería frágil y podría ocultar cajas reales.
+- La que seguía abierta se **cierra administrativamente** dejando constancia en
+  `test_motivo` (más el rastro de `audit_cash_sessions`). No se borra ninguna sesión ni
+  ningún movimiento.
+- Excluidas de `resumen_cierre_diario` (`cajas_abiertas`, `cajas_cerradas`,
+  `diferencia_cajas`), `dashboard_operativo_admin` y `generar_alertas_operativas_admin` —
+  esta última habría emitido 4 alertas falsas de "diferencia de caja" al dueño.
+
+**Medido:** el 2026-09-06 deja de arrastrar **−S/250** sintéticos en diferencia de caja
+(la diferencia real de ese día, −S/2153, es de una caja real y no se toca).
+
+## 5. `sales.is_test` en el frontend
+
+Se auditaron los 5 `.from('sales')` del frontend. Filtrados los 4 operativos:
+`Reportes.tsx` (lista, reimpresión y Excel), `Devoluciones.tsx`, `Anulaciones.tsx` y el
+historial de compras del cliente en `Clientes.tsx`. El quinto es un lookup por `id` para
+reimprimir, alcanzable sólo desde la lista ya filtrada.
+
+No se dejó ninguna pantalla mostrando ventas de prueba mezcladas con reales. El recuento
+de ventas marcadas queda visible como dato de auditoría en
+`diagnostico_integridad_admin()`.
+
+## 6 y 7. Reconciliación de IMEI con efecto real
+
+Antes, `resolver_reconciliacion_serial` sólo escribía `estado_reconciliacion='resuelto'` +
+una nota libre. **Un IMEI físicamente faltante podía quedar "resuelto" y seguir
+`disponible`, o sea vendible.** Trazabilidad falsa.
+
+Ahora la resolución es tipada, y cada tipo tiene un efecto real:
+
+| Tipo | Qué cambia en `product_serials` | Stock agregado | ¿Deja cerrar? |
+|---|---|---|---|
+| `error_escaneo` | nada (descarta el escaneo) | sin cambio | sí |
+| `corregir_ubicacion` | `location_id` → sucursal del conteo | −1 origen, +1 destino | sí |
+| `cuarentena` | `estado='cuarentena'` | −1 si venía de disponible | sí |
+| `faltante_confirmado` | `estado='faltante'` | −1 si venía de disponible | sí |
+| `baja` (solo admin) | `estado='baja'` | −1 si venía de disponible | sí |
+| `investigacion` | `estado='investigacion'` | −1 si venía de disponible | **NO** |
+| `recepcion_omitida` | nada (no inventa stock) | sin cambio | **NO** |
+
+Se agregaron `faltante` e `investigacion` al check de `product_serials.estado`. Toda
+transición que saca una unidad de `disponible` baja el agregado con su
+`inventory_movements` correspondiente.
+
+## 8. El conteo ya no se cierra con una nota
+
+`cerrar_inventario_fisico` aceptaba `('coincide','resuelto')`. Ahora exige `coincide` o un
+`resuelto` con **tipo terminal**. `investigacion` y `recepcion_omitida` son **BLOCKER
+explícitos** (decisión tomada, no ambigua): para cerrar hay que convertirlos a un tipo
+terminal.
+
+Se retiró además, **solo para variantes serializadas**, el chequeo agregado
+`cantidad_contada <> esperado_al_contar`. No es un relajamiento: una vez que cada unidad
+tiene estado terminal, la verdad física es la lista de seriales, y las resoluciones mueven
+el agregado a propósito — exigir además la igualdad agregada bloquearía para siempre un
+conteo legítimamente resuelto. En su lugar el cierre **alinea** `inventory.cantidad` al
+número real de seriales disponibles, dejando el delta como `inventory_movements` auditable.
+
+**Bug adicional encontrado al probar el flujo completo:** un producto serializado sin
+escaneos quedaba con `cantidad_contada` NULL, y como `registrar_conteo_fisico` rechaza los
+serializados, el conteo **no podía cerrarse nunca**. Ahora arranca en 0 (0 escaneos = 0
+unidades) y el chequeo de "faltan por contar" sólo mira las no serializadas.
+
+**Verificado end-to-end (con rollback):** 3 escaneos → `cantidad_contada`=3;
+`error_escaneo` → baja a 2 sin tocar el catálogo; `faltante_confirmado` → `estado=faltante`
+(ya no `disponible`); `corregir_ubicacion` → serial movido de sucursal; cierre con
+`investigacion` → bloqueado; cierre final → OK con `inventory` alineado a 2.
+
+## 9. `registrar_serial_contado` valida variante y serial
+
+Ahora valida que la variante pertenezca a **ese** conteo, que el producto sea realmente
+`control_serial`, y **rechaza un serial conocido que pertenece a otra variante** — antes se
+podía guardar `variant_id = X` con `serial_id` de `Y`, porque las dos FK son independientes
+y ninguna lo impedía.
+
+### Dato de producción sobre seriales
+
+Los únicos productos serializados que existían eran los 5 `QA-INTEGRITY-imei` de P0.1, y
+estaban **inconsistentes**: `inventory = 0` pero 2 seriales `disponible` cada uno. Se
+dieron de baja los 10 (nunca existieron físicamente). Si se hubieran dejado, cada conteo
+futuro los habría arrastrado como faltantes irresolubles y no habría podido cerrarse jamás.
+
+## 10. Bloqueo absoluto de tests mutantes en producción
+
+Antes, `QA_ALLOW_MUTATING_INTEGRATION_TESTS=true` alcanzaba para saltarse el bloqueo
+**incluso apuntando a producción**. Ahora contra producción el rechazo es **absoluto**: esa
+variable sólo habilita escritura en proyectos que no son producción.
+
+**Verificado:** producción + override → `REFUSED`, exit 1; producción + override +
+`NODE_ENV=test` + `CI=true` → `REFUSED`, exit 1; staging + override → continúa; URL
+ilegible → `REFUSED` (falla cerrado).
+
+## 11. Observabilidad de `pos_devices`
+
+En producción hay **0 terminales registradas**: el gate multi-terminal del cierre diario
+está desplegado pero todavía no cubre nada. `EstadoSistema` y `CierreDiario` ahora muestran
+el conteo y advierten explícitamente cuando es 0, explicando que cada terminal se registra
+sola la primera vez que el POS sincroniza estando conectada. No se inventaron terminales.
+
+## 12. Staging: no se pudo crear
+
+La organización está en **plan free**, con límite de **2 proyectos activos**, y ambos slots
+están ocupados: `lukatcell-pos` (producción) y `diteon-staging` (otro sistema en uso). La
+creación falla con:
+
+> The following organization members have reached their maximum limits for the number of
+> active free projects... (2 project limit)
+
+No se pausó ni eliminó ningún proyecto para hacer espacio: `diteon-staging` es un sistema
+ajeno a este trabajo y pausarlo sería una acción disruptiva sobre infraestructura
+compartida. **Siguiendo la instrucción de no improvisar, P0 queda ABIERTO por las pruebas
+E2E que requieren staging.**
+
+### Cómo se verificó entonces, y qué NO cubre
+
+Todo lo funcional de este pase se probó contra producción con **transacciones que se
+abortan al final** (`raise exception` tras las aserciones), de modo que nada persiste: se
+confirmó cero residuo y que la secuencia `sales_numero_seq` sigue en 55 (no se quemó ningún
+correlativo, insertando `numero` explícito).
+
+Eso **sí** ejerce los triggers y funciones reales con contexto `auth.uid()` realista.
+**No** cubre: la capa PostgREST (resolución de parámetros del RPC tal como la llama el
+frontend), concurrencia real entre sesiones paralelas (el `FOR UPDATE` se validó por
+lógica y por reintento secuencial, no con dos transacciones simultáneas), ni el frontend.
+
+## Migraciones creadas en P0.3
+
+1. `20260909013722_autorizacion_fk_after_insert_y_promocion_acumulable.sql`
+2. `20260909014536_cash_sessions_is_test_y_exclusion_de_cifras.sql`
+3. `20260909015040_reconciliacion_imei_con_efecto_real.sql`
+4. `20260909015208_conteo_serializado_cantidad_derivada_de_escaneos.sql`
+
+Estado: **145 archivos ↔ 145 registros**, cero huérfanos (se mantiene la reconciliación
+lograda en P0.2 bloque 11).
+
+## Qué falta para poder decir "P0 cerrado"
+
+1. **Pruebas E2E en staging**, imposibles hoy por el límite del plan free (ver punto 12).
+   Faltan concretamente: la matriz completa de cupones/promociones a través de PostgREST,
+   concurrencia real de autorizaciones y de `max_usos` con dos transacciones simultáneas, y
+   el ciclo completo de `pos_devices` (heartbeat → intento de aprobación → sincronización →
+   aprobación).
+2. **Activación real de las terminales POS**: hoy hay 0 registradas, así que el gate
+   multi-terminal existe pero no protege ningún cierre todavía.

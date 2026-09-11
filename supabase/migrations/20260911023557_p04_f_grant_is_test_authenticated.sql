@@ -1,0 +1,37 @@
+-- ============================================================================
+-- P0.4 / R8 — products.is_test era invisible para `authenticated`.
+--
+-- public.products NO usa un grant de tabla: usa grants POR COLUMNA con la
+-- lista enumerada explícitamente (así es como se oculta `costo`):
+--
+--   grant select (id, sku, nombre, categoria_id, precio_base, activo,
+--                 created_at, imagen_url, favorito, updated_at, control_serial)
+--     on public.products to authenticated;
+--
+-- `alter table ... add column` hereda los privilegios de TABLA (insert/update),
+-- pero no puede añadirse a una lista de columnas que se otorgó una a una. Por
+-- eso `is_test` nació sin SELECT para `authenticated`.
+--
+-- Postgres exige privilegio SELECT sobre TODA columna referenciada, también
+-- las que sólo aparecen en el WHERE. Sin este grant, los cuatro filtros nuevos
+-- del frontend fallan con 42501 (permission denied for table products):
+--
+--   src/pages/Inventario.tsx           .eq('variant.product.is_test', false)
+--   src/pages/Compras.tsx              .eq('product.is_test', false)
+--   src/pages/Transferencias.tsx       .eq('product.is_test', false)
+--   src/pages/ComparadorProveedores.tsx .eq('product.is_test', false)
+--
+-- El efecto sería silencioso y peor que un error visible: PostgREST devuelve
+-- error, el cliente deja `data` en null y las pantallas de Inventario,
+-- Compras, Transferencias y Comparador de Proveedores quedan VACÍAS, como si
+-- no hubiera stock ni variantes.
+--
+-- Las RPC no estaban afectadas (son SECURITY DEFINER, propiedad de postgres),
+-- así que esto sólo bloqueaba el acceso directo a tablas desde el navegador.
+--
+-- Se otorga SÓLO is_test, y sólo a `authenticated`. `costo` sigue fuera a
+-- propósito, y a `anon` no se le da nada: no tiene ningún grant sobre products
+-- y esta migración no se lo añade.
+-- ============================================================================
+
+grant select (is_test) on table public.products to authenticated;

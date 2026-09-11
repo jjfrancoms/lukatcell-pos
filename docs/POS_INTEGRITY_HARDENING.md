@@ -1331,6 +1331,11 @@ rompería la propia suite de pruebas sin aportar nada.
 | R2 | `sincronizar_stock_serializado` sin guarda de `control_serial`: llamarla sobre una variante no serializada habría puesto su `inventory` en 0 (el número de seriales disponibles), **borrando stock real**. Verificado: con la guarda, 25 unidades quedan intactas. | Corregido |
 | R3 | La matriz dejaba un **callejón sin salida**: un serial esperado que pasa a `servicio` durante el conteo no admitía ninguna resolución (0 opciones válidas) y el conteo no podría cerrarse jamás. Se amplía `movimiento_posterior` a cualquier estado que ya no sea `disponible`. Verificado: 0 estados sin salida. | Corregido |
 | R4 | `dashboard_operativo_admin` contaba el stock crítico leyendo `inventory` **sin mirar el catálogo**, y el filtro se había perdido al reescribir la migración. El saneamiento habría **empeorado** el indicador: las 8 filas QA quedan en `cantidad = 0` y `0 <= stock_minimo` es cierto siempre, así que el dashboard pasaba de 1 crítico a **8 críticos permanentes e irresolubles** — nadie puede reponer un producto que no existe. Medido en ensayo: 8 sin filtro, **0** con filtro. | Corregido |
+| R5 | La verificación consolidada *después* de migrar mostró `anon SECURITY DEFINER = 2`, no 0: `private.historial_orden_tecnica()` y `private.recalcular_caja_tras_movimiento()` conservaban el `EXECUTE` heredado por `PUBLIC`. Son de la misma clase que las dos que sí revocó la migración C. Explotabilidad real nula (`anon` no tiene `USAGE` sobre `private`, PostgREST no lo expone, y una función que devuelve `trigger` no se puede invocar por SQL), pero dejar 2 de 19 con el grant era arbitrario. Corregido con la migración D, forward-only. | Corregido |
+| R6 | `dashboard_operativo_admin` es la **única INVOKER** de las cinco funciones que tocó la migración A. `authenticated` no tiene `SELECT` sobre `public.products` —usa grants por columna, así se oculta `costo`—, así que el join que añadí rompió el dashboard en producción con `42501 permission denied for table products`, para todos los usuarios. El ensayo previo no lo vio porque corrió como `postgres`, que no pasa por privilegios ni RLS, y devolvía `0`, que además era el valor correcto. Se corrige con un helper `SECURITY DEFINER` en vez de un grant, para que la RLS de `products` no pueda descartar filas en silencio. | Corregido |
+| R7 | `cerrar_inventario_fisico` contaba los seriales **antes** de tomar el lock de `inventory` y escribía un valor ABSOLUTO. Bajo `READ COMMITTED` una venta que hace commit entre ambas sentencias provoca que el cierre escriba el conteo previo a la venta: **la unidad vendida reaparece en stock** con un movimiento `+1` falso. Reproducido con dos conexiones simultáneas contra un PostgreSQL real: orden viejo `inventory=10 / seriales=9 / movs=[+1]`, orden nuevo `inventory=9 / seriales=9 / movs=[]`. | Corregido |
+| R8 | `products` usa grants **por columna**, y `ALTER TABLE ADD COLUMN` no se añade a una lista otorgada una a una: `is_test` nació invisible para `authenticated`. Los cuatro filtros nuevos del frontend (`Inventario`, `Compras`, `Transferencias`, `ComparadorProveedores`) habrían fallado con `42501` y dejado esas pantallas **vacías**, como si no hubiera stock. No estaba roto en producción sólo porque el frontend aún no se había desplegado: es exactamente el fallo que el orden «BD antes que frontend» existe para atrapar. | Corregido |
+| R9 | La aceptación de producción no podía *comprobar* media docena de invariantes del release (definición de constraints, `NOT NULL`, cuerpos de funciones, grants por columna, historial de migraciones): nada de eso está expuesto por PostgREST. Se añade `p04_invariantes_admin()`, de solo lectura, y la suite pasa a **fallar cerrado** — antes un `SKIP` con salida 0 podía leerse como éxito. | Corregido |
 
 ## Bloqueo externo: no hay entorno de staging
 
@@ -1354,3 +1359,138 @@ quedó residuo y que `sales_numero_seq` no avanzó (se insertan `numero` explíc
 Qué cubre: los triggers y funciones reales con contexto `auth.uid()` realista, sobre el
 esquema real. **Qué no cubre**: la capa PostgREST tal como la llama el frontend,
 concurrencia real entre sesiones simultáneas (requiere dos conexiones), y el frontend.
+
+## Migraciones creadas en P0.4
+
+1. `20260909043020_p04_a_products_is_test.sql` — identidad canónica de catálogo de
+   prueba, saneamiento de las 66 unidades QA con delta real, filtro `not p.is_test` en
+   los cinco consumidores de `inventory`, y `product_variants.product_id NOT NULL` (R1).
+2. `20260909043129_p04_b_ledger_delta_real.sql` — las ventas entran al libro mayor;
+   `private.sincronizar_stock_serializado` como punto único de verdad del stock
+   serializado, con delta real, idempotencia y guarda de `control_serial` (R2).
+3. `20260909043245_p04_c_matriz_transiciones_imei.sql` — matriz de transiciones de IMEI
+   validada en servidor, tipo `movimiento_posterior` para que un conteo no quede
+   bloqueado para siempre (R3), y revocación de dos funciones `SECURITY DEFINER`.
+4. `20260909043441_p04_d_revoca_triggers_anon.sql` — las dos últimas funciones de
+   trigger con `EXECUTE` heredado por `PUBLIC` (R5).
+
+5. `20260910021414_p04_e_dashboard_invoker.sql` — helper `private.variantes_de_prueba()`
+   y vuelta atrás del join que rompió el dashboard (R6).
+6. `20260911023557_p04_f_grant_is_test_authenticated.sql` — `select (is_test)` para
+   `authenticated`, sin el cual el frontend nuevo dejaba cuatro pantallas vacías (R8).
+7. `20260911023654_p04_g_cierre_conteo_lock_antes_de_contar.sql` — el cierre de conteo
+   bloquea antes de contar, en vez de resucitar stock vendido (R7).
+8. `20260911024014_p04_h_invariantes_admin.sql` — `p04_invariantes_admin()`, superficie
+   de solo lectura para que la aceptación de producción verifique en vez de suponer (R9).
+
+Estado: **153 archivos ↔ 153 registros**, huella `md5` idéntica en ambos lados, cero
+huérfanos en las dos direcciones.
+
+### Corrección a lo dicho en P0.3: sí había forma de correr Postgres en local
+
+En P0.3 se declaró `E2E LOCAL = BLOQUEADO EXTERNAMENTE` porque no hay Docker, Podman ni
+`psql` en la máquina. La conclusión era falsa: el paquete npm `embedded-postgres` trae un
+binario de PostgreSQL real y no necesita contenedores. Con él se levantó una instancia
+18.4 local y se ejerció **concurrencia real** —dos conexiones simultáneas, con el bloqueo
+verificado en `pg_stat_activity`— que es justamente lo que se había dado por imposible.
+Así se encontró y se demostró R7. El bloqueo externo era un límite de la búsqueda, no del
+entorno.
+
+### Orden del release y compatibilidad hacia atrás
+
+La base se migró **antes** de desplegar el frontend, porque el frontend nuevo consulta
+`products.is_test` y ofrece `movimiento_posterior`, y ambos tienen que existir primero.
+Para que eso fuera seguro se verificó que cada migración es compatible con el frontend
+**viejo** que Vercel seguía sirviendo (`e02c886`): ese build siempre asigna `product_id`
+al crear una variante (así que el `NOT NULL` no lo rompe), no menciona `is_test` ni
+`movimiento_posterior` en ninguna consulta, y las siete funciones reemplazadas conservan
+firma y forma de retorno idénticas.
+
+La única diferencia observable en esa ventana es que el frontend viejo no ofrece
+`movimiento_posterior`, así que una fila de conteo cuyo serial se movió a un estado no
+`disponible` no era resoluble hasta que el frontend nuevo llegara. El comportamiento
+anterior en ese mismo caso era corromper el inventario, así que la ventana no introduce
+un riesgo nuevo.
+
+## Segunda ronda de hallazgos: R6, R7 y R8
+
+Las migraciones A–D ya estaban aplicadas en producción y el frontend estaba a punto de
+desplegarse cuando aparecieron tres problemas más. Ninguno lo detectaron los 350 tests
+en verde.
+
+### R6 — el cierre de conteo podía resucitar stock vendido
+
+La rama serializada de `cerrar_inventario_fisico` contaba los IMEI disponibles **antes**
+de bloquear la fila de `inventory`:
+
+```sql
+select count(*) into v_disponibles from product_serials ... estado='disponible';  -- (1)
+select cantidad into v_actual from inventory ... for update;                       -- (2)
+update inventory set cantidad = v_disponibles;                                     -- (3)
+```
+
+Bajo `read committed` cada sentencia toma su propio snapshot. (1) lee sin bloquear nada;
+(2) espera el lock que retiene una venta en curso y, al obtenerlo, ve la fila ya
+actualizada. El valor de (1) es de antes de la venta y el de (2) de después, así que (3)
+escribe un stock que **resucita la unidad vendida** y deja un movimiento `+1` falso.
+
+Sólo afecta a la rama serializada. La no serializada aplica un *delta*
+(`v_actual + v_real_diff`) sobre el valor recién bloqueado, así que absorbe sola la venta
+concurrente; la serializada asigna un *absoluto*, y ahí la lectura obsoleta es destructiva.
+
+Reproducido con **dos conexiones PostgreSQL reales** (no simulación secuencial): la venta
+mantiene su transacción abierta reteniendo el lock, y se comprueba vía `pg_stat_activity`
+que el cierre se bloquea de verdad antes de soltarla.
+
+| | inventory | seriales disponibles | movimientos |
+|---|---|---|---|
+| Orden viejo (`count` → `lock`) | **10** | 9 | `[+1]` ← stock resucitado |
+| Orden nuevo (`lock` → `count`) | **9** | 9 | `[]` |
+
+La corrección delega en `private.sincronizar_stock_serializado`, que ya nació en P0.4 con
+el orden correcto. Conserva los cuatro contratos del bloque que sustituye: escribe sólo si
+el delta es distinto de 0, registra un único movimiento con el delta real, crea la fila de
+`inventory` si falta, y mantiene motivo y `staff_id`.
+
+### R8 — `products.is_test` era invisible para el frontend
+
+`public.products` no usa un grant de tabla: usa grants **por columna** con la lista
+enumerada explícitamente (así se oculta `costo`). `alter table ... add column` hereda los
+privilegios de tabla, pero no puede añadirse a una lista otorgada columna a columna, así
+que `is_test` nació sin `SELECT` para `authenticated`.
+
+Postgres exige `SELECT` sobre toda columna referenciada, **también en el `WHERE`**. Los
+cuatro filtros nuevos habrían fallado con `42501` en cuanto Vercel sirviera el frontend
+nuevo, y el fallo habría sido silencioso: PostgREST devuelve error, el cliente deja `data`
+en `null`, y las pantallas de Inventario, Compras, Transferencias y Comparador de
+Proveedores quedan **vacías**, como si no hubiera stock.
+
+Las RPC no estaban afectadas: son `SECURITY DEFINER` propiedad de `postgres`.
+
+### R7 — la aceptación de producción podía aprobar sin comprobar nada
+
+`verify-production-release.mjs` terminaba con código 0 cuando faltaban credenciales, y
+varias comprobaciones degradaban a lista vacía cuando el diagnóstico no devolvía una
+clave — es decir, "la RPC dejó de funcionar" se traducía a "no hay problemas". Una prueba
+de aceptación que puede salir en verde sin mirar nada es peor que no tenerla: firma como
+validado un release que nadie revisó.
+
+Ahora falla cerrado: sin credenciales es `BLOCKED` con exit 1; una sección crítica sin
+fuente de datos es `FAIL`, no `SKIP`; y una clave ausente del diagnóstico es `FAIL`
+explícito. Verificado con 13 casos contra un PostgREST simulado, incluyendo un caso sano
+que debe pasar y doce degradaciones que deben tumbar el release.
+
+Los dos `SKIP` estructurales que quedaban (la lista de triggers desplegados y el cuadre
+agregado de las ventas) dejaron de ser inverificables: los expone la RPC nueva
+`p04_invariantes_admin()`, de solo lectura, que además publica los invariantes concretos
+de P0.4 para que la aceptación los compruebe en vez de suponerlos.
+
+### Migraciones creadas en esta ronda
+
+5. `_p04_e_cierre_conteo_lock_antes_de_contar.sql` — R6.
+6. `_p04_f_grant_is_test_authenticated.sql` — R8.
+7. `_p04_g_invariantes_admin.sql` — superficie de verificación para R7.
+
+Las tres se validaron contra un PostgreSQL real local (binarios oficiales, sin Docker)
+antes de proponerlas. Siguen sin aplicarse: el push y el deploy están retenidos hasta que
+el red team independiente no encuentre otro P0.

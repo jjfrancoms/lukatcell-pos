@@ -25,3 +25,12 @@ dist-ssr
 .vercel
 .env*
 supabase/.temp/
+
+# Entorno local aislado para la reproducción de concurrencia (R7).
+# Se versiona el manifiesto para que `cd .p04-pgtest && npm install` funcione en
+# un clon limpio, tal como indica scripts/verify-concurrency-cierre.mjs; lo que
+# se excluye es el binario de PostgreSQL y el directorio de datos.
+.p04-pgtest/*
+!.p04-pgtest/package.json
+!.p04-pgtest/package-lock.json
+.p04-pgtest/pgdata*

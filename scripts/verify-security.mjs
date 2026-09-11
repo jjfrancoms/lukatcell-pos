@@ -233,10 +233,121 @@ const ultimaDefinicion = (nombre) => {
   return siguiente === -1 ? resto : resto.slice(0, siguiente + 1)
 }
 
-for (const fn of ['dashboard_operativo_admin', 'iniciar_inventario_fisico', 'inventario_valorizado_admin']) {
+// Las que son SECURITY DEFINER pueden hacer el join contra products directamente.
+for (const fn of ['iniciar_inventario_fisico', 'inventario_valorizado_admin']) {
   const def = ultimaDefinicion(fn)
   assert(def !== null && /not\s+p\.is_test/i.test(def),
     `public.${fn} excluye el catálogo de prueba (not p.is_test) al leer inventory`)
+}
+
+// R6 — dashboard_operativo_admin NO es SECURITY DEFINER: corre como el
+// invocador, y `authenticated` no tiene SELECT sobre public.products (grants por
+// columna, para ocultar `costo`). La versión de la migración A hacía el join
+// igualmente y rompió el dashboard en producción con 42501. Tiene que excluir el
+// catálogo de prueba SIN tocar products: vía el helper SECURITY DEFINER.
+{
+  const def = ultimaDefinicion('dashboard_operativo_admin')
+  assert(def !== null && /variantes_de_prueba\s*\(\s*\)/i.test(def),
+    'dashboard_operativo_admin excluye el catálogo de prueba vía private.variantes_de_prueba() (R6)')
+  assert(def !== null && !/\bpublic\.products\b/i.test(def),
+    'dashboard_operativo_admin no lee public.products: corre como invocador y authenticated no tiene SELECT sobre esa tabla (R6)')
+  assert(def !== null && !/security\s+definer/i.test(def),
+    'dashboard_operativo_admin sigue siendo INVOKER: convertirla en definer saltaría las RLS de ventas, cajas y órdenes')
+}
+
+// R6 — el cierre de conteo no puede volver a contar los seriales por su cuenta.
+// El orden `count(*) -> for update` deja que una venta concurrente haga commit
+// entre las dos sentencias, y el cierre escribe entonces un valor de antes de la
+// venta: la unidad vendida reaparece en stock con un movimiento +1 falso.
+// Reproducido con dos conexiones reales; ver .p04-pgtest/repro-r6.mjs.
+{
+  const def = ultimaDefinicion('cerrar_inventario_fisico')
+  assert(def !== null && /sincronizar_stock_serializado/i.test(def),
+    'cerrar_inventario_fisico deriva el stock serializado por private.sincronizar_stock_serializado (bloquea inventory antes de contar)')
+  assert(def !== null && !/into\s+v_disponibles/i.test(def),
+    'cerrar_inventario_fisico ya no cuenta los seriales antes de bloquear inventory (R6)')
+}
+
+// La función a la que delega tiene que conservar ese orden: si alguien mueve el
+// `for update` por debajo del conteo, el bug vuelve sin tocar el cierre.
+{
+  const conSync = migraciones
+    .filter((m) => /create or replace function\s+private\.sincronizar_stock_serializado\s*\(/i.test(m.sql))
+    .sort((a, b) => (a.nombre < b.nombre ? -1 : a.nombre > b.nombre ? 1 : 0))
+  const sql = conSync[conSync.length - 1].sql
+  const cuerpo = sql.slice(sql.search(/create or replace function\s+private\.sincronizar_stock_serializado\s*\(/i))
+  const posLock = cuerpo.search(/for update/i)
+  const posConteo = cuerpo.search(/estado\s*=\s*'disponible'/i)
+  assert(posLock !== -1 && posConteo !== -1 && posLock < posConteo,
+    'sincronizar_stock_serializado bloquea inventory ANTES de contar los seriales disponibles (R6)')
+}
+
+// R8 — products usa grants POR COLUMNA, así que una columna nueva nace invisible
+// para `authenticated`. Sin este grant los filtros del frontend fallan con 42501
+// y dejan Inventario/Compras/Transferencias/Comparador vacíos.
+assert(migraciones.some((m) => /grant\s+select\s*\(\s*is_test\s*\)\s+on\s+(table\s+)?public\.products\s+to\s+authenticated/i.test(m.sql)),
+  'Existe una migración que otorga SELECT sobre products.is_test a authenticated (R8)')
+assert(!migraciones.some((m) => /grant\s+select\s*\([^)]*\bcosto\b[^)]*\)\s+on\s+(table\s+)?public\.products\s+to\s+(authenticated|anon)/i.test(m.sql)),
+  'Ninguna migración expone products.costo a authenticated/anon')
+
+// R7 — la aceptación de producción tiene que fallar cerrado.
+{
+  const release = read('scripts/verify-production-release.mjs')
+  assert(/if \(missing\.length\) \{[\s\S]*?process\.exit\(1\)/.test(release),
+    'verify-production-release termina con exit 1 cuando faltan credenciales (nunca un SKIP en verde)')
+  // Solo las líneas de código: el propio archivo explica en un comentario por
+  // qué NO usa ese patrón, y ese comentario no puede hacer fallar la assertion.
+  const releaseCodigo = release.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+  assert(!/\bd\.\w+\s*\|\|\s*\[\]/.test(releaseCodigo),
+    'verify-production-release no degrada una clave ausente del diagnóstico a lista vacía (sería un PASS falso)')
+  assert(/function listaDe\(/.test(release),
+    'verify-production-release exige que las claves del diagnóstico existan (helper listaDe)')
+  assert(/critica\s*=\s*true/.test(release) && /'FAIL \(sin fuente de datos\)'/.test(release),
+    'una sección crítica sin fuente de datos cuenta como FAIL, no como SKIP')
+  // Los omitidos tienen que evaluarse ANTES que los avisos: al revés, un warn
+  // rutinario cortocircuita el estado y tapa un check que no llegó a correr.
+  const cuerpoEstado = release.slice(release.indexOf('function estadoDe('))
+  assert(cuerpoEstado.indexOf('s.omitidos.length') < cuerpoEstado.indexOf('s.avisos.length'),
+    'estadoDe evalúa los omitidos antes que los avisos (un WARN no puede enmascarar una verificación incompleta)')
+  assert(/p04_invariantes_admin/.test(release),
+    'verify-production-release comprueba los invariantes de P0.4 explícitamente')
+  for (const clave of ['products_is_test_visible_authenticated', 'cierre_conteo_orden_seguro', 'movimiento_posterior_permitido', 'product_variants_product_id_not_null', 'corte_resuelto', 'lineas_todas_desde_migracion']) {
+    assert(release.includes(clave), `verify-production-release comprueba ${clave}`)
+  }
+}
+
+// La regresión de concurrencia tampoco puede dar un falso éxito: un comando
+// llamado test:concurrency que imprime SKIP y sale con 0 hace creer que se
+// probó la concurrencia cuando no se probó nada.
+{
+  const conc = read('scripts/verify-concurrency-cierre.mjs')
+  const concCodigo = conc.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+  assert(!/process\.exit\(0\)/.test(concCodigo),
+    'verify-concurrency-cierre no termina nunca con exit 0 sin haber ejercitado la concurrencia')
+  assert(/function abortar\(/.test(concCodigo) && /process\.exit\(1\)/.test(concCodigo),
+    'verify-concurrency-cierre falla cerrado (exit 1) cuando falta el entorno de pruebas')
+  assert(/pg_stat_activity/.test(concCodigo) && /bloqueoObservado/.test(concCodigo),
+    'verify-concurrency-cierre comprueba que el cierre se bloqueó de verdad en el lock (concurrencia real, no secuencial)')
+  assert(/no reprodujo R6/.test(concCodigo),
+    'verify-concurrency-cierre exige que el orden viejo SÍ reproduzca el bug (si no, la prueba dejó de detectarlo)')
+  // Tiene que ejercitar el SQL REAL de las migraciones. Una versión anterior
+  // reimplementaba las funciones a mano y habría seguido en verde con el bug
+  // de vuelta: demostraba que el patrón lock->count es correcto, no que
+  // cerrar_inventario_fisico lo use.
+  assert(/function funcionDeMigracion\(/.test(concCodigo) && /20260911023654_p04_g_cierre_conteo_lock_antes_de_contar\.sql/.test(concCodigo),
+    'verify-concurrency-cierre carga la definición real de cerrar_inventario_fisico desde las migraciones')
+  assert(/20260909015208_conteo_serializado_cantidad_derivada_de_escaneos\.sql/.test(concCodigo),
+    'verify-concurrency-cierre contrasta contra la definición real anterior, no contra una reimplementación')
+  assert(/pg_backend_pid\(\)/.test(concCodigo) && /pid = \$1/.test(concCodigo),
+    'verify-concurrency-cierre observa el bloqueo del backend concreto del cierre, no de cualquier sesión de la instancia')
+  // No puede volver a borrar nada fuera de su propio esquema desechable. Una
+  // versión anterior hacía `drop schema auth cascade` sobre la base apuntada
+  // por P04_PG_URL: contra una Supabase eso borra todos los usuarios.
+  const drops = concCodigo.match(/drop schema[^;]*/gi) || []
+  assert(drops.length > 0 && drops.every((d) => /\br6\b/.test(d)),
+    `verify-concurrency-cierre solo borra su esquema de pruebas r6 (encontrado: ${JSON.stringify(drops)})`)
+  assert(/no es local/.test(conc) && /localhost/.test(concCodigo),
+    'verify-concurrency-cierre rechaza apuntar a una base que no sea local')
 }
 
 if (process.exitCode) process.exit(process.exitCode)

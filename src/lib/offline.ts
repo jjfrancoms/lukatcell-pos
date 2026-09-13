@@ -388,6 +388,37 @@ async function marcarEstado(id: number, estado: SyncEstado, ultimoError: string 
   })
 }
 
+/**
+ * Registra una venta encolada y deja el outbox coherente con lo que pasó.
+ *
+ * - Éxito: se borra del outbox.
+ * - El SERVIDOR la rechazó (trae código de error): FAILED y cuenta como intento;
+ *   tras MAX_INTENTOS_AUTO queda "agotada" para revisión manual.
+ * - Fallo de RED (no hubo respuesta): vuelve a PENDING sin gastar intentos. Antes
+ *   contaba igual que un rechazo, así que cinco cortes de conexión convertían una
+ *   venta válida en "agotada" que ya no se reintentaba sola.
+ *
+ * Devuelve 'red' para que el bucle se detenga: sin conexión, seguir sólo
+ * acumularía timeouts sobre el resto de la cola.
+ */
+async function enviarVentaEncolada(v: VentaPendiente & { id: number }): Promise<'ok' | 'rechazada' | 'red'> {
+  const db = await getDB()
+  await marcarEstado(v.id, 'SYNCING')
+  try {
+    await registrarVenta({ ...v, occurredAt: v.createdAt, offlineOrigin: true })
+    await db.delete('ventas_pendientes', v.id)
+    return 'ok'
+  } catch (e) {
+    const mensaje = e instanceof Error ? e.message : 'Error desconocido'
+    if (e instanceof ErrorRegistroVenta && e.esErrorDeServidor) {
+      await marcarEstado(v.id, 'FAILED', mensaje)
+      return 'rechazada'
+    }
+    await marcarEstado(v.id, 'PENDING', mensaje)
+    return 'red'
+  }
+}
+
 let sincronizando = false
 
 /**
@@ -402,6 +433,13 @@ let sincronizando = false
  * ante dos pestañas sincronizando al mismo tiempo vive en el backend, vía el
  * `client_transaction_id` único y el `exception when unique_violation` de
  * `registrar_venta`.
+ *
+ * Un registro en SYNCING al empezar es un envío interrumpido (pestaña cerrada o
+ * recargada a mitad de la llamada): nadie más lo está enviando en esta pestaña
+ * (mutex) ni en otra (lock de navegador en sincronizarVentasCoordinadas). Antes
+ * quedaba así para siempre: nunca se reintentaba y seguía contando como
+ * "pendiente", bloqueando el cambio de sucursal y la aprobación del cierre. Se
+ * reenvía: el servidor devuelve la venta existente si ya había llegado.
  */
 export async function sincronizarVentasPendientes(forzarAgotadas = false): Promise<{ ok: number; fallidas: number }> {
   if (sincronizando) return { ok: 0, fallidas: 0 }
@@ -409,20 +447,16 @@ export async function sincronizarVentasPendientes(forzarAgotadas = false): Promi
   try {
     const db = await getDB()
     const todas = await db.getAll('ventas_pendientes')
-    const pendientes = todas.filter((v) => v.estado === 'PENDING' || (v.estado === 'FAILED' && (forzarAgotadas || v.intentos < MAX_INTENTOS_AUTO)))
+    const pendientes = todas.filter((v) =>
+      v.estado === 'PENDING' || v.estado === 'SYNCING' || (v.estado === 'FAILED' && (forzarAgotadas || v.intentos < MAX_INTENTOS_AUTO)))
     let ok = 0
     let fallidas = 0
     for (const v of pendientes) {
       if (v.id === undefined) continue
-      await marcarEstado(v.id, 'SYNCING')
-      try {
-        await registrarVenta({ ...v, occurredAt: v.createdAt, offlineOrigin: true })
-        await db.delete('ventas_pendientes', v.id)
-        ok++
-      } catch (e) {
-        await marcarEstado(v.id, 'FAILED', e instanceof Error ? e.message : 'Error desconocido')
-        fallidas++
-      }
+      const r = await enviarVentaEncolada(v as VentaPendiente & { id: number })
+      if (r === 'ok') ok++
+      else fallidas++
+      if (r === 'red') break
     }
     return { ok, fallidas }
   } finally {
@@ -434,14 +468,6 @@ export async function sincronizarVentasPendientes(forzarAgotadas = false): Promi
 export async function reintentarVentaManual(id: number): Promise<boolean> {
   const db = await getDB()
   const v = await db.get('ventas_pendientes', id)
-  if (!v) return false
-  await marcarEstado(id, 'SYNCING')
-  try {
-    await registrarVenta({ ...v, occurredAt: v.createdAt, offlineOrigin: true })
-    await db.delete('ventas_pendientes', id)
-    return true
-  } catch (e) {
-    await marcarEstado(id, 'FAILED', e instanceof Error ? e.message : 'Error desconocido')
-    return false
-  }
+  if (!v || v.id === undefined) return false
+  return (await enviarVentaEncolada(v as VentaPendiente & { id: number })) === 'ok'
 }

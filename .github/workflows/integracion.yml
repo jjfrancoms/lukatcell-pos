@@ -1,0 +1,62 @@
+name: Integración (PostgreSQL real + navegador)
+
+# Gate adicional para pull requests: ejecuta contra PostgreSQL real el ensayo compuesto
+# (153 migraciones de producción + las nuevas, huella, invariantes y pruebas de negocio como
+# `authenticated`), las suites SQL de P1 y el E2E de navegador con backend Supabase simulado.
+#
+# Va en un workflow aparte del CI de push a main a propósito: estos jobs se validaron en macOS y
+# todavía no en un runner Linux; un fallo del entorno del runner no debe bloquear el push de release
+# mientras no se haya visto verde aquí. Cuando lo esté, puede promoverse a required check.
+# No usa ningún secreto: el E2E construye el bundle con un origen Supabase falso y lo verifica.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integracion-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  postgres-y-navegador:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Dependencias del repo
+        run: npm ci
+
+      - name: Dependencias del entorno PostgreSQL aislado
+        working-directory: .p04-pgtest
+        run: npm ci
+
+      - name: Dependencias del entorno E2E (sin descarga de navegadores)
+        working-directory: .p1-e2e
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
+
+      - name: Ensayo compuesto de migraciones
+        run: node scripts/verify-migraciones-compuestas.mjs
+
+      - name: Suites SQL de P1
+        run: |
+          node scripts/verify-transferencias-parciales.mjs
+          node scripts/verify-recepcion-compras.mjs
+          node scripts/verify-caja-autorizacion.mjs
+          node scripts/verify-pagos-conciliacion.mjs
+
+      - name: E2E de navegador (Chrome del runner)
+        run: node scripts/verify-e2e-ui.mjs

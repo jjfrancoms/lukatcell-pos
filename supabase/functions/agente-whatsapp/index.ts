@@ -6,11 +6,15 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+import { firmaMetaValida } from "./firma.ts";
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const WHATSAPP_TOKEN = Deno.env.get("WHATSAPP_TOKEN")!;
 const WHATSAPP_PHONE_ID = Deno.env.get("WHATSAPP_PHONE_ID")!;
 const WEBHOOK_VERIFY_TOKEN = Deno.env.get("WEBHOOK_VERIFY_TOKEN")!;
+// App Secret de la app de Meta: firma X-Hub-Signature-256 de cada POST (ver firma.ts).
+const WHATSAPP_APP_SECRET = Deno.env.get("WHATSAPP_APP_SECRET") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 
 const CLAUDE_MODEL = "claude-haiku-4-5-20251001";
@@ -348,9 +352,20 @@ Deno.serve(async (req: Request) => {
   }
 
   if (req.method === "POST") {
+    // Fallo cerrado: sin App Secret no hay forma de distinguir a Meta de un atacante,
+    // así que no se procesa nada (503 hace que Meta reintente cuando esté configurado).
+    if (!WHATSAPP_APP_SECRET) {
+      console.error("agente-whatsapp: WHATSAPP_APP_SECRET no configurado; webhook rechazado");
+      return new Response("Service Unavailable", { status: 503 });
+    }
+    const cuerpoCrudo = await req.text();
+    if (!(await firmaMetaValida(WHATSAPP_APP_SECRET, cuerpoCrudo, req.headers.get("x-hub-signature-256")))) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+
     let payload: Record<string, unknown>;
     try {
-      payload = await req.json();
+      payload = JSON.parse(cuerpoCrudo);
     } catch {
       return new Response("Bad Request", { status: 400 });
     }

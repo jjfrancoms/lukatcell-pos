@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Clock, TrendingUp, AlertTriangle, ArrowDownCircle, ArrowUpCircle } from 'lucide-react'
+import { Clock, TrendingUp, AlertTriangle, ArrowDownCircle, ArrowUpCircle, ShieldCheck } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useToast } from '../lib/toast'
@@ -17,6 +17,20 @@ const TIPOS_ELEVADOS: { value: CashMovementTipo; label: string }[] = [
   { value: 'deposito_banco', label: 'Depósito a banco' },
   { value: 'retiro_banco', label: 'Retiro de banco' },
 ]
+// Autorización operativa reutilizada para caja: el motor es el de siempre
+// (tipo 'otro' + recurso_tipo 'movimiento_caja'), no hay uno nuevo.
+type AutorizacionCaja = {
+  id: string
+  estado: string
+  motivo: string
+  payload: { tipo?: string; monto?: number } | null
+}
+const RECURSO_CAJA = 'movimiento_caja'
+// Tipos que sacan efectivo del cajón. El ajuste va aparte: cuenta para el
+// umbral en cualquier signo, porque un ajuste positivo grande es justo el
+// mecanismo con el que se tapa un faltante.
+const TIPOS_EGRESO: CashMovementTipo[] = ['retiro', 'gasto', 'deposito_banco']
+
 const ETIQUETAS_MOVIMIENTO: Record<CashMovementTipo, string> = {
   venta_efectivo: 'Venta en efectivo',
   devolucion_efectivo: 'Reembolso',
@@ -47,6 +61,15 @@ export default function Caja() {
   const [movMotivo, setMovMotivo] = useState('')
   const [registrandoMov, setRegistrandoMov] = useState(false)
   const [ventasSinSincronizar, setVentasSinSincronizar] = useState(0)
+  // Umbral por encima del cual un egreso o ajuste exige autorización aprobada.
+  // El servidor es quien manda: esto es sólo para no dejar al cajero a ciegas.
+  const [umbral, setUmbral] = useState<number | null>(null)
+  const [autorizacion, setAutorizacion] = useState<AutorizacionCaja | null>(null)
+  const [solicitando, setSolicitando] = useState(false)
+  // Se genera ANTES del envío y se reutiliza en cada reintento: el doble clic
+  // manda el mismo id y el servidor devuelve el movimiento que ya registró en
+  // vez de duplicarlo. Sólo se renueva cuando un movimiento se completa.
+  const [txId, setTxId] = useState(() => crypto.randomUUID())
 
   const cargarSesion = async () => {
     if (!staff) return
@@ -62,10 +85,21 @@ export default function Caja() {
     const { data } = await supabase.from('cash_movements').select('*').eq('cash_session_id', sesionId).order('created_at', { ascending: false })
     setMovimientos(data || [])
   }
+  const cargarAutorizacion = async (sesionId: string) => {
+    const { data } = await supabase.from('autorizaciones_operativas').select('id,estado,motivo,payload')
+      .eq('recurso_tipo', RECURSO_CAJA).eq('recurso_id', sesionId).in('estado', ['pendiente', 'aprobada'])
+      .order('created_at', { ascending: false }).limit(1).maybeSingle()
+    setAutorizacion((data as AutorizacionCaja | null) ?? null)
+  }
   useEffect(() => { cargarSesion(); cargarHistorial() }, [staff])
   useEffect(() => {
-    if (!sesionActiva) { setMovimientos([]); setVentasSinSincronizar(0); return }
+    supabase.from('configuracion').select('caja_egreso_max_sin_autorizacion').eq('id', 1).maybeSingle()
+      .then(({ data }) => setUmbral(data ? Number((data as { caja_egreso_max_sin_autorizacion: number }).caja_egreso_max_sin_autorizacion) : null))
+  }, [])
+  useEffect(() => {
+    if (!sesionActiva) { setMovimientos([]); setVentasSinSincronizar(0); setAutorizacion(null); return }
     cargarMovimientos(sesionActiva.id)
+    cargarAutorizacion(sesionActiva.id)
     const revisarPendientes = () => {
       getVentasPendientes().then((todas) => {
         setVentasSinSincronizar(todas.filter((v) => v.cashSessionId === sesionActiva.id).length)
@@ -110,22 +144,95 @@ export default function Caja() {
     navigate('/jornada')
   }
 
-  const registrarMovimiento = async () => {
+  const montoNum = Number(movMonto) || 0
+  // El servidor trabaja con el valor absoluto: un ajuste lleva signo y cuenta
+  // para el umbral en cualquier sentido.
+  const montoAbs = Math.abs(montoNum)
+  const esEgreso = TIPOS_EGRESO.includes(movTipo)
+  // Espejo EXACTO de la regla de registrar_movimiento_caja:
+  //   requiere autorización ⇔ (monto_firmado < 0 or tipo = 'ajuste') and abs(monto) > umbral
+  // Es informativo —el servidor rechaza igual—, pero si el espejo omite un caso,
+  // la UI no ofrece pedir la autorización que el servidor sí exige y el
+  // movimiento queda sin salida. Hoy `ajuste` no se ofrece en el selector; se
+  // refleja igualmente para que añadirlo no abra ese callejón.
+  const requiereAutorizacion = umbral !== null && (esEgreso || movTipo === 'ajuste') && montoAbs > umbral
+  const autorizacionAprobada = autorizacion?.estado === 'aprobada' ? autorizacion : null
+  const autorizacionCubre = !!autorizacionAprobada
+    && autorizacionAprobada.payload?.tipo === movTipo
+    && montoAbs > 0 && montoAbs <= Number(autorizacionAprobada.payload?.monto ?? 0)
+
+  // Una clave por INTENCIÓN, no por clic. Un reintento con el mismo contenido
+  // conserva la clave y el servidor devuelve el movimiento ya registrado; si el
+  // cajero cambia tipo, monto o motivo es otra operación y necesita otra clave.
+  // Sin esto, tras un éxito cuya respuesta se perdió, editar el formulario
+  // reutilizaría una clave ya consumida con un contenido distinto.
+  useEffect(() => { setTxId(crypto.randomUUID()) }, [movTipo, movMonto, movMotivo])
+
+  const solicitarAutorizacion = async () => {
     if (!sesionActiva) return
+    if (montoAbs <= 0) { showToast('Ingresa el monto que necesitas autorizar', 'error'); return }
+    const motivo = movMotivo.trim()
+    if (motivo.length < 5) { showToast('Indica un motivo de al menos 5 caracteres', 'error'); return }
+    setSolicitando(true)
+    const { error } = await supabase.rpc('solicitar_autorizacion', {
+      p_tipo: 'otro',
+      p_recurso_tipo: RECURSO_CAJA,
+      p_recurso_id: sesionActiva.id,
+      p_motivo: `Caja · ${ETIQUETAS_MOVIMIENTO[movTipo]} de S/ ${montoAbs.toFixed(2)}: ${motivo}`,
+      // El servidor exige un número JSON > 0 y lo compara con el valor absoluto:
+      // un ajuste negativo enviado tal cual se rechazaría por "no indica el monto".
+      p_payload: { tipo: movTipo, monto: montoAbs },
+    })
+    setSolicitando(false)
+    if (error) { showToast(error.message || 'No se pudo solicitar la autorización', 'error'); return }
+    await cargarAutorizacion(sesionActiva.id)
+    showToast('Solicitud enviada. Un administrador debe aprobarla.', 'success')
+  }
+
+  // Guarda SÍNCRONA contra el doble envío. `registrandoMov` es estado de React y
+  // no se actualiza hasta el siguiente render: dos clics en la misma tarea de JS
+  // pasarían ambos. El ref se lee y se escribe en el acto.
+  const enviandoMov = useRef(false)
+
+  const registrarMovimiento = async () => {
+    if (!sesionActiva || enviandoMov.current) return
     const monto = Number(movMonto)
     if (!monto || monto <= 0) { showToast('Ingresa un monto válido', 'error'); return }
     if (!movMotivo.trim()) { showToast('Indica el motivo del movimiento', 'error'); return }
+    enviandoMov.current = true
     setRegistrandoMov(true)
-    const { error } = await supabase.rpc('registrar_movimiento_caja', {
-      p_cash_session_id: sesionActiva.id,
-      p_tipo: movTipo,
-      p_monto: monto,
-      p_motivo: movMotivo.trim(),
-    })
+    // El builder de PostgREST es thenable pero no expone .finally(): se libera
+    // la guarda con try/finally para que ni un error de red la deje bloqueada.
+    let error: { message?: string } | null = null
+    try {
+      ;({ error } = await supabase.rpc('registrar_movimiento_caja', {
+        p_cash_session_id: sesionActiva.id,
+        p_tipo: movTipo,
+        p_monto: monto,
+        p_motivo: movMotivo.trim(),
+        p_client_transaction_id: txId,
+        p_autorizacion_id: autorizacionCubre ? autorizacionAprobada!.id : null,
+      }))
+    } catch (e) {
+      error = { message: e instanceof Error ? e.message : 'No se pudo registrar el movimiento' }
+    } finally {
+      enviandoMov.current = false
+    }
     setRegistrandoMov(false)
-    if (error) { showToast(error.message || 'No se pudo registrar el movimiento', 'error'); return }
-    setMovMonto(''); setMovMotivo('')
+    if (error) {
+      // El id de transacción NO se renueva: el reintento del mismo movimiento
+      // debe seguir siendo el mismo movimiento para el servidor.
+      showToast(error.message || 'No se pudo registrar el movimiento', 'error')
+      // Un timeout DESPUÉS del commit llega aquí como error. Recargar los
+      // movimientos hace visible un movimiento que sí se registró, para que el
+      // cajero no lo cargue otra vez a mano creyendo que falló.
+      await cargarMovimientos(sesionActiva.id)
+      await cargarAutorizacion(sesionActiva.id)
+      return
+    }
+    setMovMonto(''); setMovMotivo(''); setTxId(crypto.randomUUID())
     await cargarMovimientos(sesionActiva.id)
+    await cargarAutorizacion(sesionActiva.id)
     showToast('Movimiento registrado', 'success')
   }
 
@@ -176,8 +283,33 @@ export default function Caja() {
             <div className="flex flex-col sm:flex-row gap-2">
               <input type="number" value={movMonto} onChange={(e) => setMovMonto(e.target.value)} placeholder="Monto (S/)" className="flex-1 bg-[#161b22] border border-[#30363d] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
               <input type="text" value={movMotivo} onChange={(e) => setMovMotivo(e.target.value)} placeholder="Motivo (obligatorio)" className="flex-[2] bg-[#161b22] border border-[#30363d] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-              <button onClick={registrarMovimiento} disabled={registrandoMov} className="bg-[#21262d] hover:bg-[#282e37] text-white font-semibold px-4 py-2 rounded-xl text-sm disabled:opacity-40 whitespace-nowrap">{registrandoMov ? 'Registrando...' : 'Registrar'}</button>
+              <button onClick={registrarMovimiento} disabled={registrandoMov || (requiereAutorizacion && !autorizacionCubre)} className="bg-[#21262d] hover:bg-[#282e37] text-white font-semibold px-4 py-2 rounded-xl text-sm disabled:opacity-40 whitespace-nowrap">{registrandoMov ? 'Registrando...' : 'Registrar'}</button>
             </div>
+            {umbral !== null && esEgreso && (
+              <p className="text-[11px] text-gray-600 mt-2">Por encima de S/ {umbral.toFixed(2)}, un egreso necesita autorización de un administrador.</p>
+            )}
+            {requiereAutorizacion && (
+              <div className={`mt-3 rounded-xl border p-3 ${autorizacionCubre ? 'border-green-500/30 bg-green-500/10' : 'border-orange-500/30 bg-orange-500/10'}`}>
+                {autorizacionCubre ? (
+                  <p className="text-xs text-green-300 flex items-center gap-2"><ShieldCheck size={14} className="shrink-0" />
+                    Autorización aprobada por hasta S/ {Number(autorizacionAprobada?.payload?.monto ?? 0).toFixed(2)}. Se consumirá al registrar este movimiento.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs text-orange-300 flex items-center gap-2 mb-2"><AlertTriangle size={14} className="shrink-0" />
+                      {autorizacion?.estado === 'pendiente'
+                        ? `Ya hay una solicitud pendiente para esta caja (${ETIQUETAS_MOVIMIENTO[(autorizacion.payload?.tipo ?? 'retiro') as CashMovementTipo]} de S/ ${Number(autorizacion.payload?.monto ?? 0).toFixed(2)}). Espera a que un administrador la resuelva.`
+                        : autorizacionAprobada
+                          ? `La autorización aprobada cubre ${ETIQUETAS_MOVIMIENTO[(autorizacionAprobada.payload?.tipo ?? 'retiro') as CashMovementTipo]} de hasta S/ ${Number(autorizacionAprobada.payload?.monto ?? 0).toFixed(2)}; no cubre este movimiento.`
+                          : `Este ${ETIQUETAS_MOVIMIENTO[movTipo].toLowerCase()} de S/ ${montoNum.toFixed(2)} supera el umbral y necesita autorización aprobada.`}
+                    </p>
+                    {autorizacion?.estado !== 'pendiente' && (
+                      <button onClick={solicitarAutorizacion} disabled={solicitando} className="rounded-lg bg-orange-500/20 border border-orange-500/40 px-3 py-1.5 text-xs font-semibold text-orange-200 disabled:opacity-40">{solicitando ? 'Enviando...' : 'Solicitar autorización'}</button>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {movimientos.length > 0 && (

@@ -3,11 +3,18 @@ import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
 import type { JornadaActual, Staff } from '../types'
 
+// Capacidades definidas en el servidor (private.tiene_capacidad, Fase 24). La UI no decide por
+// puesto: pregunta al servidor, que además aplica los permisos de la sucursal activa.
+export type Capacidad = 'supervisar' | 'operar_inventario' | 'operar_taller' | 'vender'
+type Capacidades = Record<Capacidad, boolean>
+
 interface AuthContextValue {
   session: Session | null
   staff: Staff | null
   loading: boolean
   isAdmin: boolean
+  capacidades: Capacidades | null
+  puede: (capacidad: Capacidad) => boolean
   cashSessionId: string | null
   jornada: JornadaActual | null
   jornadaActiva: boolean
@@ -26,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [staff, setStaff] = useState<Staff | null>(null)
   const [loading, setLoading] = useState(true)
+  const [capacidades, setCapacidades] = useState<Capacidades | null>(null)
   const [cashSessionId, setCashSessionId] = useState<string | null>(null)
   const [jornada, setJornada] = useState<JornadaActual | null>(null)
 
@@ -36,17 +44,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setJornada(fila ?? null)
   }
 
+  // Sin conexión, mismo criterio por puesto que _p2_h pero sin los permisos por sucursal: es sólo para
+  // no bloquear la UI offline; el servidor vuelve a validar cada operación al sincronizar.
+  // ÚNICO lugar del frontend con listas de puestos (lo verifica scripts/verify-navigation.mjs).
+  const cargarCapacidades = async (s: Staff) => {
+    const { data, error } = await supabase.rpc('mis_capacidades')
+    if (!error && data) { setCapacidades(data as Capacidades); return }
+    const admin = s.rol === 'administrador', p = s.puesto || ''
+    setCapacidades({
+      supervisar: admin || ['encargado', 'jefa'].includes(p),
+      operar_inventario: admin || ['tecnico', 'encargado', 'jefa'].includes(p),
+      operar_taller: admin || ['tecnico', 'encargado', 'jefa'].includes(p),
+      vender: true,
+    })
+  }
+
   const cargarStaff = async (userId: string) => {
     const { data } = await supabase.from('staff').select('*').eq('user_id', userId).maybeSingle()
     if (data && !data.activo) {
-      setStaff(null); setCashSessionId(null); setJornada(null)
+      setStaff(null); setCashSessionId(null); setJornada(null); setCapacidades(null)
       await supabase.auth.signOut()
       return
     }
     const efectivo = data ? ({ ...data, location_id: data.active_location_id ?? data.location_id } as Staff) : null
     setStaff(efectivo)
-    if (efectivo) await Promise.all([cargarCajaActiva(efectivo.id), cargarJornada()])
-    else { setCashSessionId(null); setJornada(null) }
+    if (efectivo) await Promise.all([cargarCajaActiva(efectivo.id), cargarJornada(), cargarCapacidades(efectivo)])
+    else { setCashSessionId(null); setJornada(null); setCapacidades(null) }
   }
 
   const cargarCajaActiva = async (staffId: string) => {
@@ -93,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const jornadaActiva = Boolean(jornada?.entrada && !jornada?.salida)
 
   return (
-    <AuthContext.Provider value={{ session, staff, loading, isAdmin: staff?.rol === 'administrador', cashSessionId, jornada, jornadaActiva, signIn, signOut, refreshStaff, refreshCashSession, refreshJornada, registrarEntrada, registrarSalida }}>
+    <AuthContext.Provider value={{ session, staff, loading, isAdmin: staff?.rol === 'administrador', capacidades, puede: (c: Capacidad) => staff?.rol === 'administrador' || !!capacidades?.[c], cashSessionId, jornada, jornadaActiva, signIn, signOut, refreshStaff, refreshCashSession, refreshJornada, registrarEntrada, registrarSalida }}>
       {children}
     </AuthContext.Provider>
   )

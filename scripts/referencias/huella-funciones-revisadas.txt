@@ -1,0 +1,4 @@
+private.consumir_autorizacion|1846f0a2160fbab74ea5a0a6af16cbe4|76a087604eaa72e1940d35aaa0c29b48|producción termina en "end;" y separa declare/begin en líneas; repo "end" sin ; — equivalente en plpgsql
+public.resolver_autorizacion|c33d9fd6714f8563fd397322de1e1657|954ab4991bbe6d1eb14eef931e759ad7|producción termina en "end;" y separa declare/begin en líneas; repo "end" sin ; — equivalente en plpgsql
+public.solicitar_autorizacion|f7c3cc0aa95a7ee8edf8e02575875b66|51e2778706f4968198edd00039f2a02d|producción termina en "end;" y separa declare/begin en líneas; repo "end" sin ; — equivalente en plpgsql
+public.mi_estado_jornada|0b4477eba3663645ab923c30a8f34024|7620096c253ba57ef67e592207c7bf93|producción usa "as ahora_local"/"as fecha_local"; repo el alias sin "as" y otra disposición — equivalente en SQL

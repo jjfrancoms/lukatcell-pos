@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Entorno local aislado para reproducir R6 con concurrencia real. Fuera del repo publicado: no debe aparecer nunca en el package.json principal ni en CI.",
+  "description": "Entorno aislado de PostgreSQL real para el ensayo compuesto y las suites SQL. Nunca en el package.json principal; lo usa sólo el workflow de integración (.github/workflows/integracion.yml), no el CI de push.",
   "dependencies": {
     "embedded-postgres": "^18.4.0-beta.17",
     "pg": "^8.23.0"

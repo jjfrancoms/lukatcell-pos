@@ -20,7 +20,13 @@ assert(layout.includes('sharedSections.filter(section=>section.items.length>0)')
 assert(layout.includes('useState<Record<string,boolean>>({})'), 'Los grupos empiezan cerrados')
 assert(layout.includes('setOpenSections(prev=>({...prev,[active.id]:true}))'), 'La categoría de la ruta activa se abre automáticamente')
 assert(layout.includes("isAdmin?[{to:'/dashboard'") && layout.includes('...(isAdmin?['), 'Los accesos administrativos respetan el rol')
-assert(layout.includes("['tecnico','encargado','jefa'].includes"), 'Inventario avanzado respeta el puesto autorizado')
+assert(layout.includes("puedeInventarioAvanzado=puede('operar_inventario')"), 'Inventario avanzado respeta la capacidad operar_inventario del servidor')
+{
+  // Fase 24: las listas de puestos viven sólo en src/lib/auth.tsx (fallback offline de mis_capacidades).
+  const listar = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((d) => d.isDirectory() ? listar(`${dir}/${d.name}`) : [`${dir}/${d.name}`])
+  const conPuesto = listar('src').filter((f) => /\.(tsx?|jsx?)$/.test(f) && f !== 'src/lib/auth.tsx' && /\]\.includes\(\s*staff\??\.puesto/.test(read(f)))
+  assert(conPuesto.length === 0, `Ningún archivo fuera de auth.tsx decide permisos por puesto${conPuesto.length ? `: ${conPuesto.join(', ')}` : ''}`)
+}
 assert(layout.includes('title={`${section.label} · abrir menú`}') && layout.includes('setCollapsed(false);setOpenSections({[section.id]:true})'), 'El modo compacto conserva tooltips y permite abrir submenús')
 assert(layout.includes("aria-label={menuOpen?'Cerrar menú':'Abrir menú'}"), 'El control móvil tiene nombre accesible')
 

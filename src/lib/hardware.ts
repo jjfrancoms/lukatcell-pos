@@ -1,12 +1,23 @@
 export type HardwareHealth={ok:boolean;printer?:boolean;drawer?:boolean;version?:string;message?:string}
 const DEFAULT_BRIDGE='http://127.0.0.1:17171'
 
-export function getBridgeUrl(){return localStorage.getItem('lukatcell_hardware_bridge')||DEFAULT_BRIDGE}
-export function setBridgeUrl(url:string){
+// El bridge recibe el HTML de los recibos y la orden de abrir el cajón: sólo puede ser local.
+// Se valida al guardar Y al leer, porque localStorage se puede escribir por fuera de setBridgeUrl.
+function origenLocal(url:string){
   const u=new URL(url)
-  if(!['127.0.0.1','localhost','::1'].includes(u.hostname))throw new Error('El bridge debe ejecutarse localmente')
+  // URL.hostname devuelve IPv6 entre corchetes ("[::1]"): sin normalizar, '::1' nunca coincidía.
+  const host=u.hostname.replace(/^\[|\]$/g,'')
+  if(!['127.0.0.1','localhost','::1'].includes(host))throw new Error('El bridge debe ejecutarse localmente')
   if(!['http:','https:'].includes(u.protocol))throw new Error('Protocolo no permitido')
-  localStorage.setItem('lukatcell_hardware_bridge',u.origin)
+  return u.origin
+}
+export function getBridgeUrl(){
+  const guardado=localStorage.getItem('lukatcell_hardware_bridge')
+  if(!guardado)return DEFAULT_BRIDGE
+  try{return origenLocal(guardado)}catch{return DEFAULT_BRIDGE}
+}
+export function setBridgeUrl(url:string){
+  localStorage.setItem('lukatcell_hardware_bridge',origenLocal(url))
 }
 
 async function call(path:string,body?:unknown,timeoutMs=1800){

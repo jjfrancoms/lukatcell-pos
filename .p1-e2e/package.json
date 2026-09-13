@@ -1,0 +1,9 @@
+{
+  "name": "lukatcell-p1-e2e",
+  "private": true,
+  "description": "Entorno aislado para E2E de navegador con backend Supabase simulado. Sin descarga de navegadores.",
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

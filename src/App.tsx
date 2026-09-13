@@ -46,6 +46,7 @@ import Sucursales from './pages/Sucursales'
 import Promociones from './pages/Promociones'
 import SeguridadMFA from './pages/SeguridadMFA'
 import Auditoria from './pages/Auditoria'
+import Incidencias from './pages/Incidencias'
 import Configuracion from './pages/Configuracion'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -57,7 +58,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 function AdminRoute({ children }: { children: React.ReactNode }) { const { isAdmin } = useAuth(); return isAdmin ? <>{children}</> : <Navigate to="/" replace /> }
 function JornadaRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva } = useAuth(); return jornadaActiva ? <>{children}</> : <Navigate to="/jornada" replace /> }
 function OperationalRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva, isAdmin } = useAuth(); return (isAdmin || jornadaActiva) ? <>{children}</> : <Navigate to="/jornada" replace /> }
-function InventoryOpsRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva,isAdmin,staff }=useAuth(); const habilitado=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||''); if(!habilitado)return <Navigate to="/" replace/>; if(!isAdmin&&!jornadaActiva)return <Navigate to="/jornada" replace/>; return <>{children}</> }
+function InventoryOpsRoute({ children }: { children: React.ReactNode }) { const { jornadaActiva,isAdmin,capacidades,puede }=useAuth(); if(!isAdmin&&capacidades===null)return null; const habilitado=puede('operar_inventario'); if(!habilitado)return <Navigate to="/" replace/>; if(!isAdmin&&!jornadaActiva)return <Navigate to="/jornada" replace/>; return <>{children}</> }
 function VentaRoute() { const { jornadaActiva, cashSessionId } = useAuth(); if (!jornadaActiva) return <Navigate to="/jornada" replace />; if (!cashSessionId) return <Navigate to="/caja" replace />; return <Venta /> }
 
 export default function App() {
@@ -103,6 +104,7 @@ export default function App() {
       <Route path="personal" element={<AdminRoute><Personal /></AdminRoute>} />
       <Route path="permisos" element={<AdminRoute><PermisosPersonal /></AdminRoute>} />
       <Route path="cambios-turno" element={<AdminRoute><CambiosTurno /></AdminRoute>} />
+      <Route path="incidencias" element={<AdminRoute><Incidencias /></AdminRoute>} />
       <Route path="auditoria" element={<AdminRoute><Auditoria /></AdminRoute>} />
       <Route path="configuracion" element={<AdminRoute><Configuracion /></AdminRoute>} />
     </Route>

@@ -6,8 +6,9 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { useConfig } from '../lib/config'
 import { sumarMontos } from '../lib/money'
-import { startOfBusinessDayLima, getBusinessDateLima } from '../lib/businessDate'
+import { startOfBusinessDayLima, getBusinessDateLima, addDaysBusinessDateLima } from '../lib/businessDate'
 import ReciboVenta from '../components/ReciboVenta'
+import { useToast } from '../lib/toast'
 import type { ReciboLineaItem, PagoDetalle, EstadoComprobante } from '../types'
 
 interface ComprobanteResumen { id: string; estado: EstadoComprobante; tipo_comprobante: string; serie: string; numero: number; enlace_pdf: string | null }
@@ -15,6 +16,7 @@ interface VentaFila { id: string; numero: number; fecha: string; total: number; 
 interface ReimpresionData {
   saleId: string; numero: number | null; fecha: string; cart: ReciboLineaItem[]
   subtotal: number; impuesto: number; total: number; pagos: PagoDetalle[]; clienteNombre: string | null
+  reimpresion: { copia: number }
 }
 interface Ganancias { total_ventas: number; total_costo: number; total_ganancia: number; margen_promedio: number; num_ventas: number }
 interface TopProducto { producto_nombre: string; producto_sku: string | null; unidades_vendidas: number; ingreso: number; costo_total: number; ganancia: number; margen: number }
@@ -26,18 +28,19 @@ const ORDEN_ESTANCADA_DIAS = 3
 type Rango = 'hoy' | 'semana' | 'mes'
 
 function rangoFechas(rango: Rango) {
-  const hasta = new Date()
-  const desde = new Date()
-  // "Hoy" es un concepto de día comercial (America/Lima), no de medianoche
-  // local del dispositivo — startOfBusinessDayLima() da el instante UTC
-  // exacto en que empieza el día comercial de hoy en Lima.
-  if (rango === 'hoy') return { desde: startOfBusinessDayLima().toISOString(), hasta: hasta.toISOString() }
-  if (rango === 'semana') desde.setDate(desde.getDate() - 7)
-  else desde.setDate(desde.getDate() - 30)
-  return { desde: desde.toISOString(), hasta: hasta.toISOString() }
+  // Todos los rangos son de días comerciales completos de Lima (America/Lima),
+  // no de medianoche del dispositivo ni de "ahora menos N×24 h": "semana" es
+  // hoy y los 6 días comerciales anteriores; "mes", hoy y los 29 anteriores.
+  // startOfBusinessDayLima() da el instante UTC exacto en que empieza ese día.
+  const diasAtras = rango === 'hoy' ? 0 : rango === 'semana' ? 6 : 29
+  return {
+    desde: startOfBusinessDayLima(addDaysBusinessDateLima(-diasAtras)).toISOString(),
+    hasta: new Date().toISOString(),
+  }
 }
 
 export default function Reportes() {
+  const { showToast } = useToast()
   const { isAdmin } = useAuth()
   const { config } = useConfig()
   const [ventas, setVentas] = useState<VentaFila[]>([])
@@ -97,6 +100,14 @@ export default function Reportes() {
 
   const abrirReimpresion = async (ventaId: string) => {
     setCargandoReimpresion(ventaId)
+    // Fallo cerrado: sin registro en el servidor no hay reimpresión. El número de
+    // copia que devuelve se imprime en el recibo para que no pase por un original.
+    const { data: registro, error: errorRegistro } = await supabase.rpc('registrar_reimpresion_venta', { p_sale_id: ventaId, p_motivo: null })
+    if (errorRegistro || !registro) {
+      setCargandoReimpresion(null)
+      showToast(errorRegistro?.message || 'No se pudo registrar la reimpresión', 'error')
+      return
+    }
     const [{ data: venta }, { data: items }, { data: pagos }] = await Promise.all([
       supabase.from('sales').select('id, numero, fecha, subtotal, impuesto, total, cliente_id').eq('id', ventaId).single(),
       supabase.from('sale_items').select('cantidad, precio_unitario, descuento, producto_nombre_snapshot, variant_id').eq('sale_id', ventaId),
@@ -124,6 +135,7 @@ export default function Reportes() {
       total: Number(venta.total),
       pagos: (pagos || []).map((p) => ({ metodo: p.metodo, monto: Number(p.monto), referencia: p.referencia ?? undefined })) as PagoDetalle[],
       clienteNombre,
+      reimpresion: { copia: Number((registro as { copia: number }).copia) },
     })
   }
 

@@ -1494,3 +1494,77 @@ de P0.4 para que la aceptación los compruebe en vez de suponerlos.
 Las tres se validaron contra un PostgreSQL real local (binarios oficiales, sin Docker)
 antes de proponerlas. Siguen sin aplicarse: el push y el deploy están retenidos hasta que
 el red team independiente no encuentre otro P0.
+
+---
+
+# OLA 1–4 — Continuación de fases (2026-09-13)
+
+Estado: **migraciones aplicadas en producción el 2026-09-13** (15/15, una a una, cada una verificada
+antes de la siguiente; 168 migraciones registradas, paridad producción ↔ repositorio comprobada).
+El frontend, los scripts y la Edge Function viajan en el mismo commit de release; la Edge Function
+`agente-whatsapp` **no se despliega** en este release (decisión del dueño: falta `WHATSAPP_APP_SECRET`).
+Evidencia y cronología completas en `docs/agents/CURRENT_EXECUTION.md`.
+
+## Versiones reales en producción
+
+| Versión | Migración |
+|---|---|
+| 20260913221937 | `p1_a_transferencias_parciales` |
+| 20260913222322 | `p1_b_recepcion_idempotente` |
+| 20260913222534 | `p1_c_caja_umbral_autorizacion` |
+| 20260913222756 | `p1_d_pagos_conciliacion` |
+| 20260913223130 | `p1_e_reconcilia_resolver_turno_fecha` |
+| 20260913223305 | `p2_a_reportes_business_date` |
+| 20260913224059 | `p2_b_sucursal_activa` |
+| 20260913224213 | `p2_c_rls_puntos_cliente` |
+| 20260913224318 | `p2_d_crm_alcance` |
+| 20260913224516 | `p2_e_cierre_diario_clasificado` |
+| 20260913224644 | `p2_f_incidencias` |
+| 20260913224743 | `p2_g_reimpresiones` |
+| 20260913224843 | `p2_h_capacidades` |
+| 20260913225428 | `p2_i_capacidades_funciones` |
+| 20260913225613 | `p2_j_reembolsos_proveedor` |
+
+Las abreviaturas `_p1_a` … `_p2_j` de este documento se refieren a estas migraciones.
+
+## Cómo se validó
+
+- **Ensayo compuesto** (`scripts/verify-migraciones-compuestas.mjs`): las 153 migraciones de producción
+  sobre PostgreSQL real local, huella del esquema comparada con producción por categoría (7/7), luego las
+  migraciones nuevas, 30 comprobaciones estructurales y **pruebas de negocio** como `authenticated`
+  (`scripts/compuesto/*.mjs`, 132 comprobaciones en 10 módulos, incluido un red team genérico).
+- **Mutación** por migración (`ENSAYO_OMITIR`): cada módulo falla sin su corrección.
+- Suites SQL de P1, E2E de navegador contra el bundle real (Caja, Transferencias, Offline) y gate estático.
+
+## Deriva de producción encontrada y reconciliada
+
+- `private.resolver_turno_fecha` existía sin migración que la creara y
+  `public.registrar_justificacion_asistencia` había sido reescrita a mano: codificadas con su definición
+  exacta en `_p1_e`. Otras 41 funciones difieren del repo sólo en formato o comentarios (verificado
+  función por función; referencias en `scripts/referencias/`). Tras el release, 8 de ellas quedaron
+  reescritas por las migraciones nuevas y ya coinciden byte a byte con el repo; las 33 restantes no las
+  toca ninguna migración y conservan el cuerpo que ya tenía producción.
+
+## Hallazgos corregidos (resumen)
+
+| Área | Defecto | Migración / archivo |
+|---|---|---|
+| Transferencias | 3 funciones SECURITY DEFINER nuevas ejecutables por `anon` | `_p1_a` (revoke PUBLIC) |
+| Reportes | día UTC en vez de Lima; descuento restado dos veces; sin sucursal; devoluciones ignoradas | `_p2_a` |
+| Multi-sucursal | 32 funciones usaban la sucursal base mientras UI y RLS usan la activa | `_p2_b` (generada) |
+| RLS | policy de puntos de cliente tautológica (`s.cliente_id = s.cliente_id`) | `_p2_c` |
+| CRM | perfil saltaba la RLS de ventas; incluía ventas de prueba; puntos y consentimientos editables por cualquiera | `_p2_d` |
+| Cierre diario | caja olvidada de días anteriores no impedía cerrar; stock crítico con QA | `_p2_e` |
+| Incidencias | sin entidad con ciclo de vida | `_p2_f` |
+| Reimpresión | recibos reimpresos sin rastro ni marca | `_p2_g` |
+| Permisos | listas de puestos duplicadas en 17 funciones, 1 policy y 8 pantallas; flags por sucursal sin aplicar | `_p2_h`, `_p2_i` (generada) |
+| Pagos | sin terminal ni registro de reembolsos del proveedor | `_p2_j` |
+| Offline | venta huérfana en SYNCING para siempre; cortes de red agotaban ventas | `src/lib/offline.ts` |
+| WhatsApp | webhook POST sin verificación de firma | `supabase/functions/agente-whatsapp` |
+| Hardware | URL del bridge no revalidada al leer; IPv6 local nunca aceptado | `src/lib/hardware.ts` |
+
+## Límites declarados
+
+- Impresora física no validada (sin hardware).
+- Adaptadores automáticos de reembolso (Culqi, POS externo) no creados: bloqueo externo por credenciales.
+- `integracion.yml` aún no se ha visto ejecutar en un runner Linux.

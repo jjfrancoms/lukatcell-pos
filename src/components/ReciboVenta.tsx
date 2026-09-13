@@ -17,6 +17,8 @@ interface Props {
   clienteNombre?: string | null
   cajeroNombre?: string | null
   autoImprimir?: boolean
+  // Presente sólo en reimpresiones: el número de copia lo asigna el servidor al registrarla.
+  reimpresion?: { copia: number } | null
   onClose: () => void
 }
 
@@ -27,7 +29,7 @@ function formatearNumero(numero: number | null): string {
 
 const MAX_INTENTOS_POLL_COMPROBANTE = 10
 
-export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, impuesto, total, pagos, clienteNombre, cajeroNombre, autoImprimir, onClose }: Props) {
+export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, impuesto, total, pagos, clienteNombre, cajeroNombre, autoImprimir, reimpresion, onClose }: Props) {
   const { config } = useConfig()
   const [errorImpresion, setErrorImpresion] = useState(false)
   const [comprobante, setComprobante] = useState<{ estado: EstadoComprobante; enlace_pdf: string | null } | null>(null)
@@ -82,6 +84,12 @@ export default function ReciboVenta({ saleId, numero, fecha, cart, subtotal, imp
             {config.negocio_ruc && <p>RUC: {config.negocio_ruc}</p>}
             {config.negocio_direccion && <p>{config.negocio_direccion}</p>}
           </div>
+          {reimpresion && (
+            <p className="text-center font-bold border border-black my-1.5 py-1">
+              REIMPRESIÓN · COPIA {reimpresion.copia}<br />
+              <span className="font-normal text-[10px]">{new Date().toLocaleString('es-PE')} · no es un comprobante nuevo</span>
+            </p>
+          )}
           <div className="border-t border-dashed border-black my-1.5 pt-1.5">
             <p>Ticket: {formatearNumero(numero)}</p>
             <p>Fecha: {new Date(fecha).toLocaleString('es-PE')}</p>

@@ -10,11 +10,11 @@ type Serial={id:string;variant_id:string;serial_number:string;imei2:string|null;
 type Reservation={variant_id:string;serial_id:string}
 
 export default function Seriales(){
- const {isAdmin,staff}=useAuth(); const {showToast}=useToast();
+ const {isAdmin,puede}=useAuth(); const {showToast}=useToast();
  const [products,setProducts]=useState<Product[]>([]),[variants,setVariants]=useState<Variant[]>([]),[serials,setSerials]=useState<Serial[]>([]),[reservations,setReservations]=useState<Reservation[]>([])
  const [q,setQ]=useState(''),[open,setOpen]=useState(false)
- const puedeRegistrar=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||'')
- const puedeResolverCuarentena=isAdmin||['encargado','jefa'].includes(staff?.puesto||'')
+ const puedeRegistrar=puede('operar_inventario')
+ const puedeResolverCuarentena=puede('supervisar')
  const load=async()=>{const [p,v,s,r]=await Promise.all([supabase.from('products').select('id,nombre,sku,control_serial').eq('activo',true).order('nombre'),supabase.from('product_variants').select('id,product_id,color,product:products(nombre,control_serial)').order('created_at',{ascending:false}).limit(500),supabase.from('product_serials').select('id,variant_id,serial_number,imei2,estado,location_id,variant:product_variants(color,product:products(nombre))').order('created_at',{ascending:false}).limit(1000),supabase.from('serial_reservations').select('variant_id,serial_id')]);if(p.error||v.error||s.error||r.error)showToast('No se pudieron cargar seriales','error');setProducts((p.data as Product[])||[]);setVariants((v.data as unknown as Variant[])||[]);setSerials((s.data as unknown as Serial[])||[]);setReservations((r.data as Reservation[])||[])}
  useEffect(()=>{load()},[])
  // Solo informativo: la reserva de una unidad para una venta ocurre

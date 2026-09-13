@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle, Database, PlugZap, Activity } from 'lucide-react'
+import { ShoppingCart, Wallet, Package, BarChart3, Smartphone, Menu, X, Wrench, Users, UserCog, ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, LogOut, WifiOff, Settings, Clock3, LayoutDashboard, ShieldCheck, CalendarOff, CalendarClock, Ban, RotateCcw, FileMinus2, KeyRound, CalendarCheck2, ShoppingBasket, Building2, ArrowRightLeft, ClipboardCheck, Barcode, BadgePercent, Bell, ClipboardList, MessageCircle, Database, PlugZap, Activity, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { useOnlineStatus, contarVentasPendientes } from '../lib/offline'
@@ -21,11 +21,11 @@ export default function Layout() {
   const [redimensionando, setRedimensionando] = useState(false)
   const [openSections,setOpenSections]=useState<Record<string,boolean>>({})
   const location=useLocation()
-  const { staff, isAdmin, cashSessionId, jornadaActiva, signOut } = useAuth()
+  const { staff, isAdmin, cashSessionId, jornadaActiva, signOut, puede } = useAuth()
   const { online } = useOnlineStatus()
   const [pendientes,setPendientes]=useState(0), [fallidas,setFallidas]=useState(0), [agotadas,setAgotadas]=useState(0), [reintentandoManual,setReintentandoManual]=useState(false)
   const [sucursales,setSucursales]=useState<SucursalAcceso[]>([])
-  const puedeInventarioAvanzado=isAdmin||['tecnico','encargado','jefa'].includes(staff?.puesto||'')
+  const puedeInventarioAvanzado=puede('operar_inventario')
 
   const primaryItems:NavItem[]=[
     ...(isAdmin?[{to:'/dashboard',label:'Inicio / Dashboard',icon:LayoutDashboard} as NavItem]:[]),
@@ -63,7 +63,7 @@ export default function Layout() {
     ]},
     {id:'sistema',label:'Sistema / Administración',icon:Settings,items:[
       { to: '/seguridad', label: 'Seguridad y MFA', icon: ShieldCheck },
-      ...(isAdmin?[{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings},
+      ...(isAdmin?[{to:'/incidencias',label:'Incidencias',icon:AlertTriangle},{to:'/auditoria',label:'Auditoría',icon:ShieldCheck},{to:'/configuracion',label:'Configuración',icon:Settings},
         {to:'/offline',label:'Offline y backup',icon:Database},{to:'/hardware',label:'Hardware POS',icon:PlugZap},
         {to:'/estado-sistema',label:'Estado del sistema',icon:Activity}] as NavItem[]:[]),
     ]},
@@ -92,7 +92,9 @@ export default function Layout() {
     if(active&&!openSections[active.id])setOpenSections(prev=>({...prev,[active.id]:true}))
   },[location.pathname,isAdmin,puedeInventarioAvanzado])
   useEffect(()=>{supabase.rpc('mis_sucursales').then(({data})=>setSucursales((data as SucursalAcceso[])||[]))},[staff?.id])
-  const cambiarSucursal=async(locationId:string)=>{if(!locationId||locationId===staff?.location_id)return;const {error}=await supabase.rpc('cambiar_sucursal_activa',{p_location_id:locationId});if(!error)window.location.reload()}
+  // El servidor valida cada venta contra la sucursal ACTIVA al sincronizarla: cambiar de sucursal con
+  // ventas offline en cola haría que se rechacen. Primero se sincroniza, después se cambia.
+  const cambiarSucursal=async(locationId:string)=>{if(!locationId||locationId===staff?.location_id)return;if(pendientes+fallidas+agotadas>0){window.alert('Hay ventas offline sin sincronizar en este equipo. Sincronízalas antes de cambiar de sucursal.');return}const {error}=await supabase.rpc('cambiar_sucursal_activa',{p_location_id:locationId});if(error){window.alert(error.message);return}window.location.reload()}
   // Además de actualizar los contadores locales, se publican server-side
   // (pos_devices): el cierre diario de otra terminal no tiene forma de saber
   // que ESTE navegador tiene ventas offline sin sincronizar, y aprobar el día

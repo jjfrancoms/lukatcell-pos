@@ -1,0 +1,167 @@
+private.asignar_seriales_venta()|true|523f38a6680ed1c89e5b0899fa3e70f2
+private.auth_is_admin()|true|ed66ebf6d5fc07a663c506956c2adc88
+private.auth_jornada_activa()|false|427496e4da934a01a1f9cd37b6f3fa67
+private.auth_location_id()|true|4d6a5b2de004865e214a4e4af5f27a77
+private.auth_mfa_satisfied()|true|c9286aa467b61fc5f39d32a03d4b4555
+private.auth_staff_id()|true|da809a93f2fe833d9f7689a9012a8909
+private.bloquear_payments_dia_aprobado()|true|15931530f992c4a7922792cb29ba668d
+private.bloquear_ventas_dia_aprobado()|true|337b6be0ef3374226400d11a94d109d4
+private.calcular_business_date_lima()|false|b5c5aedd7a68ae6b7901395364a99a40
+private.calcular_promocion_carrito(p_items jsonb, p_codigo_cupon text)|true|e0b389736588848a44b4dabc5eb1b7b6
+private.cierre_aprobado(p_location_id uuid, p_fecha date)|true|6694f715a1d78b1b56a073393f9a123c
+private.consumir_autorizacion(p_autorizacion_id uuid, p_tipo text, p_actor_id uuid, p_recurso_tipo text, p_recurso_id text)|true|76a087604eaa72e1940d35aaa0c29b48
+private.ejecutar_anulacion_venta(p_sale_id uuid, p_motivo text, p_actor_id uuid)|true|6e6b54f487c08029a9521c98ddf76742
+private.ejecutar_devolucion(p_sale_id uuid, p_items jsonb, p_motivo text, p_actor_id uuid)|true|6e7688bdfb84627de28cb8b47e3a6385
+private.estado_dispositivos_cierre(p_location_id uuid)|true|31f5478cd282b901445de288026b74f8
+private.historial_orden_tecnica()|true|c8a519eb4f66dca53a2abadebebf70bb
+private.insertar_movimiento_caja(p_cash_session_id uuid, p_tipo text, p_monto_firmado numeric, p_motivo text, p_staff_id uuid, p_referencia_tipo text, p_referencia_id uuid, p_reversa_de uuid)|true|8b1ddb2d113f93bed8d1006df4dbd271
+private.log_product_cost_change()|true|0716c9006ece08cc1bb895e05658f9f2
+private.log_recepcion_purchase_cost()|true|c543ccb52564aeba2cc46a2e880466ff
+private.recalcular_caja_tras_movimiento()|true|b2aecd10b98269be9e370dd5cf1644da
+private.recalcular_total_orden_servicio(p_orden_id uuid)|false|467e00923909650098b937ef59282925
+private.registrar_auditoria()|true|a9c9b62a57ec5dc99bfdf7860b7e9dcb
+private.resolver_turno_fecha(p_staff_id uuid, p_fecha date)|false|816505d4273d272124ac6a7e09963d19
+private.resolver_turno_programado(p_staff_id uuid, p_momento timestamp without time zone)|false|db60a4d1b228f7c3243f8d076bc72306
+private.resumen_cierre_diario(p_location_id uuid, p_fecha date)|true|61d69420ab8132f9ab508601b299d42c
+private.sincronizar_stock_serializado(p_variant_id uuid, p_location_id uuid, p_staff_id uuid, p_motivo text)|true|e6c2c3f55ec3f75f59526ec55b717ee8
+private.sincronizar_stock_serializado_par(p_variant_id uuid, p_loc_a uuid, p_loc_b uuid, p_staff_id uuid, p_motivo text)|true|03e86db5caafde5dd65a6109ca84aea9
+private.validar_permiso_sin_solape()|false|aa763386157776afc7bde19014578b43
+private.variantes_de_prueba()|true|c3ac9584cdeb67a9f7514ee13e4bf7db
+private.vincular_autorizacion_descuento()|true|35c42ed83c2988666c9fd59305dc6b7c
+public.actualizar_cliente_crm(p_cliente_id uuid, p_documento text, p_direccion text, p_segmento text, p_consentimiento_whatsapp boolean, p_consentimiento_email boolean)|true|8a2fac6af8f8049ef45c02023a0d7b83
+public.actualizar_costo_producto_admin(p_product_id uuid, p_costo numeric, p_origen text)|true|93626639d4f9f39bf90650761ba39e17
+public.actualizar_limite_descuento_admin(p_porcentaje numeric)|true|c85915b8eae5cebb7af08e5d2124de0e
+public.actualizar_orden_servicio_tecnica(p_orden_id uuid, p_patch jsonb)|true|a54ee4e0f4ad24324a9599d42511cda6
+public.agregar_repuesto_orden(p_orden_id uuid, p_variant_id uuid, p_cantidad integer)|true|547e1b61671aa3de36c42ed869465e85
+public.ajustar_puntos_cliente_admin(p_cliente_id uuid, p_puntos integer, p_motivo text)|true|5937e864355b098fb3bff710076fd799
+public.ajustar_stock(p_variant_id uuid, p_location_id uuid, p_cantidad_delta integer, p_motivo text)|true|31fb19354e52d9a0cc53b20fb7777b4b
+public.ajustar_stock_a_seriales_admin(p_variant_id uuid, p_motivo text)|true|929eba242fab12c7d58a9288def23eda
+public.anular_venta(p_sale_id uuid, p_motivo text)|true|b4edc28f0e97d006a4b89de9e5ab0065
+public.anular_venta_autorizada(p_sale_id uuid, p_motivo text, p_autorizacion_id uuid)|true|9638588a99fd6a48ab5810acf175b06d
+public.aprobar_cierre_diario(p_cierre_id uuid, p_firma text, p_observacion text, p_autorizacion_id uuid)|true|bd05a96e53a5416f168432aa22abff7e
+public.asignar_sucursal_staff_admin(p_staff_id uuid, p_location_id uuid, p_habilitado boolean, p_vender boolean, p_inventario boolean, p_taller boolean)|true|7e4139614ce25f5354dbb6376a217065
+public.asistencia_mensual_admin(p_mes date)|false|64ce0cfc4f3d76feeaec2606f929a56c
+public.auditoria_reciente_admin(p_limite integer)|false|cc69e432dee0b1fc43c04a8b302b3809
+public.auto_conciliar_pagos_digitales_admin(p_desde timestamp with time zone, p_hasta timestamp with time zone)|true|d2dc7a754955c3b8850a53966ce27a0b
+public.autorizaciones_admin(p_estado text, p_limite integer)|false|9d3aad75aded0743dc14f1736ef1278b
+public.buscar_por_barcode(barcode text)|false|394562d2b97c756ad1d4f1c3b7bc27a5
+public.buscar_variantes(texto text)|false|2ff327aa146a00b8492b7ae86bbda495
+public.calcular_diferencia_caja()|true|9cc48636f91b64533819f693353735a3
+public.cambiar_estado_promocion_admin(p_id uuid, p_activo boolean)|true|ae0dafb2095667aa622d7270eb5a350d
+public.cambiar_sucursal_activa(p_location_id uuid)|true|159f1e14058ea936a747b26b2ec268ff
+public.cancelar_excepcion_turno(p_excepcion_id uuid)|false|77182f057d644d451e8cddd3548cc13b
+public.cancelar_mi_solicitud_personal(p_id uuid)|true|f990b62ea66f8f63c4f2161161c19a38
+public.cancelar_permiso_personal(p_permiso_id uuid)|false|2c4d6e871a8e00f42c876511f2d79025
+public.cancelar_whatsapp_admin(p_id uuid)|true|afc9a93c9b4bc7da1000906620907f4a
+public.cerrar_dia(p_fecha date, p_observacion text)|true|cc5ecb29a1a6e29629f9d96bf2df66e4
+public.cerrar_inventario_fisico(p_inventario_id uuid)|true|0883d2e0ccd82fc52ce24a3de890d72b
+public.clientes_segmentados_admin()|true|58dfa9e6141736c1332e554ebed8a98e
+public.comparar_costos_proveedores_admin(p_variant_id uuid)|true|bccd11aa0a920cb6550364bdb13417e8
+public.conciliar_pago_admin(p_payment_id uuid, p_estado text, p_monto_confirmado numeric, p_referencia_proveedor text, p_observacion text)|true|35f2ececb8e2a823d5ab000be74845e1
+public.configurar_control_serial(p_product_id uuid, p_activo boolean)|true|1dca27ae4b289da0371b9b087977799d
+public.confirmar_reembolso_devolucion(p_devolucion_id uuid, p_metodo text, p_referencia text, p_cash_session_id uuid)|true|37ceb3b981af5d885a85dc5cd6ff229b
+public.consultar_autorizacion_descuento(p_variant_id uuid, p_porcentaje numeric, p_descuento_unitario numeric)|true|c1d118536aab18bf4976d15352535c40
+public.consumir_autorizacion_descuento(p_variant_id uuid, p_porcentaje numeric, p_descuento_unitario numeric)|true|5ba429be4eab03ddc573c52f44f26e73
+public.costos_productos_admin()|true|1d80bc4441a6d48bc59fad7038fe651d
+public.crear_nota_credito_devolucion(p_devolucion_id uuid)|true|2fe09cb5f448899e49f0c068f94e3ee9
+public.crear_orden_compra(p_proveedor_id uuid, p_items jsonb, p_fecha_esperada date, p_observacion text)|true|5a2b96c32c531258af27764d001f3e9c
+public.crear_primer_admin(p_nombre text, p_username text)|true|8179587186d5885ac5f9c8d16df17246
+public.crear_proveedor(p_nombre text, p_ruc text, p_telefono text, p_email text, p_direccion text, p_contacto text, p_notas text)|true|e55d7eb1014236dae2b083a21d82a421
+public.crear_solicitud_personal(p_tipo text, p_fecha_desde date, p_fecha_hasta date, p_motivo text, p_turno_id uuid, p_documento_path text)|true|f6e262712faf971c15ba37432abb8f27
+public.crear_transferencia_stock(p_destino_id uuid, p_items jsonb, p_observacion text)|true|e607673f419f6ec20552a1d9081aa85e
+public.cuentas_por_pagar_admin()|true|086b58b03ec24b9f9a85dfdf4ea4931b
+public.dashboard_operativo_admin()|false|5b982d2103b095f34f71c8d2449831f2
+public.descontar_inventario()|true|9f69eb0f5deada0c5403da5c6e42a0bc
+public.despachar_transferencia_stock(p_transferencia_id uuid)|true|d81a6f7f6195534a473fd59cd484ae7b
+public.detalle_inventario_fisico(p_inventario_id uuid)|true|c18bf9d4b1ecce228315889268181688
+public.diagnostico_integridad_admin()|true|7748a696fd9163253b9d6088aacc4142
+public.documentos_personal(p_staff_id uuid)|true|8a7bb0ce909ceae51b7b33f540c3240e
+public.email_por_username(p_username text)|true|ec0966552a3f7920276e2820077b3d1a
+public.emitir_comprobante_trigger()|true|718bfde3d3f1a8fed9195b5575daf31b
+public.emitir_nota_credito_trigger()|true|8f1280316b021ff848d012de22aa1064
+public.encolar_whatsapp_admin(p_cliente_id uuid, p_plantilla_clave text, p_variables jsonb, p_recurso_tipo text, p_recurso_id text, p_event_key text)|true|841e09bc49dc62edf1746e5d8911eb09
+public.estado_terminales_sucursal()|true|a096583cd02f5d65f5bbf1c168f15a19
+public.evaluar_promociones_carrito(p_items jsonb, p_codigo_cupon text)|true|9306514b2c3f9e05b1b38fb9146ed791
+public.excepciones_turno_admin(p_desde date, p_hasta date)|false|60192e4058e7556192163bf6377beb7e
+public.generar_alertas_operativas_admin()|true|7b698bc7981e880d60b1a72209eaf97b
+public.guardar_cupon_admin(p_codigo text, p_promocion_id uuid, p_max_usos integer, p_fecha_inicio timestamp with time zone, p_fecha_fin timestamp with time zone, p_activo boolean)|true|8c88da2b7ef893c48bcb48f020e72773
+public.guardar_plantilla_whatsapp_admin(p_id uuid, p_clave text, p_nombre text, p_meta_template_name text, p_idioma text, p_cuerpo_preview text, p_activo boolean)|true|e6a8de46ab7c8a87fe7f67155290def7
+public.guardar_promocion_admin(p_id uuid, p_nombre text, p_tipo text, p_valor numeric, p_compra_cantidad integer, p_paga_cantidad integer, p_fecha_inicio timestamp with time zone, p_fecha_fin timestamp with time zone, p_activo boolean, p_prioridad integer, p_acumulable boolean, p_variants jsonb)|true|b2712177db8cf1d0bc7e6306b617fd8f
+public.guardar_sucursal_admin(p_id uuid, p_nombre text, p_direccion text, p_activo boolean)|true|f7ba567792b523c9de16beaab118eea7
+public.hay_staff()|true|4e968a3f5f630260efd10b55e3739124
+public.iniciar_inventario_fisico(p_observacion text)|true|cefaac9ad8e4da9708e13e48d3b828f0
+public.inventario_valorizado_admin(p_location_id uuid)|true|92098a51f09869a760ed7c6f17d3f533
+public.justificaciones_asistencia_admin(p_mes date)|false|3be9676babf6c3ab1212c64cce36b3ba
+public.liberar_seriales_carrito(p_variant_id uuid, p_client_transaction_id uuid)|true|d1bdfa1024b2c7fa1ffd874746f4d74c
+public.limite_descuento_actual()|true|de7e27d405ea332d389ca6ecf6144eef
+public.marcar_dispositivo_fuera_de_servicio(p_device_id text, p_motivo text)|true|53dedc878bac756a372f8001481b2f11
+public.marcar_notificacion_leida(p_id uuid, p_leida boolean)|true|c08860f5e7228de726a7f27348b79ecf
+public.mi_estado_jornada()|false|7620096c253ba57ef67e592207c7bf93
+public.mis_autorizaciones(p_limite integer)|false|6b56bf752f262955d23217a41f282846
+public.mis_solicitudes_personal(p_limit integer)|true|3ecf427f7aaaf63edd16b0addb241415
+public.mis_sucursales()|true|6b6a146499a4c3b65c5ef4761155c2f0
+public.notificaciones_mias(p_limit integer)|true|e0f993c58d78a442bd972330f73aad99
+public.notificar_cambio_estado()|true|a53874ed4ad572ef7d408cf42249691b
+public.obtener_favoritos()|false|7a7cfca9e7a78dc58de71ed584002d4e
+public.p04_invariantes_admin()|true|28a16fed1a4464ec01517fded57d785d
+public.perfil_cliente_crm(p_cliente_id uuid)|true|81b6211ce97d39750c3f2dd68e62207e
+public.permisos_personal_admin(p_mes date)|false|a0a4166dadf965206b9bd13df1e6e768
+public.personal_activo_hoy()|false|116ecd34892e887a7073b951ea8b3137
+public.personal_configuracion_pendiente()|false|016a5f6078ba7b86a573dac5258b749d
+public.preservar_historial_staff_turnos()|true|bc3a486c430f05e7c6577aeac70118b6
+public.previsualizar_cierre_diario(p_fecha date)|true|ef343132b80ce6b59c4b3ccc6ad2510b
+public.quitar_justificacion_asistencia(p_asistencia_id uuid)|false|9c1f807a115bfc3793c91e4d0779bb26
+public.reabrir_asistencia(p_asistencia_id uuid, p_motivo text)|false|9d549cd0a8726bd1f6409b5a0d4c9de8
+public.recibir_orden_compra(p_orden_id uuid, p_items jsonb, p_observacion text)|true|335e0e28e6864fe3ffac3c5e34740bed
+public.recibir_transferencia_stock(p_transferencia_id uuid)|true|6a36d3ecfb846a628b06d4093c1280ca
+public.reconciliacion_seriales_admin(p_location_id uuid)|true|2b07e03b869965aa922b3e7b7fe565e2
+public.registrar_conteo_fisico(p_inventario_id uuid, p_variant_id uuid, p_cantidad integer)|true|f27f2dee9a9d110a1934eac44d819f26
+public.registrar_devolucion(p_sale_id uuid, p_items jsonb, p_motivo text)|true|3e48226c8bca11fc7d744796d6955998
+public.registrar_devolucion_autorizada(p_sale_id uuid, p_items jsonb, p_motivo text, p_autorizacion_id uuid)|true|620bc1d89125ba735cdc79b9b795cf8a
+public.registrar_documento_personal(p_staff_id uuid, p_tipo text, p_nombre text, p_storage_path text, p_mime_type text, p_size_bytes bigint, p_vence_el date, p_observacion text)|true|d070e2fd1266cc7b683d6711444300c2
+public.registrar_excepcion_turno(p_staff_id uuid, p_fecha date, p_turno_id uuid, p_motivo text)|false|4f0228295d3ff27a500a7763c10cc4d8
+public.registrar_factura_proveedor(p_proveedor_id uuid, p_orden_id uuid, p_tipo_documento text, p_serie text, p_numero text, p_fecha_emision date, p_fecha_vencimiento date, p_total numeric, p_storage_path text, p_observacion text)|true|90630fb2efc6996428f5883b81eebed3
+public.registrar_foto_orden(p_orden_id uuid, p_tipo text, p_storage_path text, p_descripcion text)|true|6d1a9724db042c868ebbaf57b197347e
+public.registrar_heartbeat_pos(p_device_id text, p_pending_sales integer, p_failed_sales integer, p_app_version text, p_nombre text)|true|f43e5ab77319c5105a4c2c8973c5d555
+public.registrar_justificacion_asistencia(p_staff_id uuid, p_fecha date, p_observacion text)|false|f81ed6d75748bae9551219851ed3e889
+public.registrar_mi_entrada()|true|611e3e477d67a810fa3746dad1c253cb
+public.registrar_mi_salida()|true|ae9c88fd2421e7f6d98e78c47fc8103c
+public.registrar_movimiento_caja(p_cash_session_id uuid, p_tipo text, p_monto numeric, p_motivo text)|true|293cab5e24ea9fc0669f53674e9cb338
+public.registrar_pago_proveedor(p_factura_id uuid, p_monto numeric, p_metodo text, p_referencia text, p_cash_session_id uuid)|true|d8bc9446ba4508894b0e9c0dc0f7d7db
+public.registrar_permiso_personal(p_staff_id uuid, p_tipo text, p_fecha_desde date, p_fecha_hasta date, p_motivo text)|false|bb72f42a346da92e4b1c1bcb8956d308
+public.registrar_serial_contado(p_inventario_id uuid, p_variant_id uuid, p_serial_number text)|true|ac0050a50c3f04d2d82ec724b53f8b7b
+public.registrar_seriales(p_variant_id uuid, p_seriales jsonb)|true|e0ef21e6d74e31978750a272971b1206
+public.registrar_uso_cupon(p_codigo text, p_sale_id uuid)|true|241083340f8a8c7f7127c2302c13c3fd
+public.registrar_venta(p_items jsonb, p_pagos jsonb, p_subtotal numeric, p_impuesto numeric, p_total numeric, p_client_transaction_id uuid, p_cliente_id uuid, p_cliente_doc text, p_location_id uuid, p_cajero_id uuid, p_cash_session_id uuid, p_tipo_comprobante text, p_comprobante_cliente_tipo_doc text, p_comprobante_cliente_num_doc text, p_comprobante_cliente_denominacion text, p_comprobante_cliente_direccion text, p_occurred_at timestamp with time zone, p_offline_origin boolean, p_orden_servicio_id uuid, p_codigo_cupon text)|true|c6b37e90e56dfeece873e86f1e8c715c
+public.registrar_venta_serializada(p_items jsonb, p_pagos jsonb, p_subtotal numeric, p_impuesto numeric, p_total numeric, p_client_transaction_id uuid, p_cliente_id uuid, p_cliente_doc text, p_location_id uuid, p_cajero_id uuid, p_cash_session_id uuid, p_tipo_comprobante text, p_comprobante_cliente_tipo_doc text, p_comprobante_cliente_num_doc text, p_comprobante_cliente_denominacion text, p_comprobante_cliente_direccion text)|true|f82bf93bca30c313486e1a5080f70bdc
+public.reintentar_whatsapp_admin(p_id uuid)|true|fd5a92f975a0695a126231bdbfb9a5e3
+public.release_health_admin()|true|851e921cf6c6fde99bc6ea736dba14c8
+public.reportes_avanzados_admin(p_desde date, p_hasta date, p_comparar_desde date, p_comparar_hasta date)|true|820a57587fb86465f5b92393ead2a77d
+public.reprogramar_staff_turnos(p_staff_id uuid, p_programacion jsonb)|false|f8b1906d1a9ec2ef4c6b3dfe16c3e6a6
+public.reservar_seriales_carrito(p_variant_id uuid, p_serial_ids jsonb, p_client_transaction_id uuid)|true|99f0307a5f992e05baff898b3c74029a
+public.resolver_autorizacion(p_autorizacion_id uuid, p_aprobar boolean, p_motivo text)|true|954ab4991bbe6d1eb14eef931e759ad7
+public.resolver_cuarentena_serial(p_serial_id uuid, p_decision text, p_observacion text)|true|a1dba6f42ac2eae4b66b9614c9ee1393
+public.resolver_promociones_carrito(p_items jsonb, p_codigo_cupon text)|true|873d53c17c153c84c9e769c675994c0e
+public.resolver_reconciliacion_serial(p_item_id uuid, p_tipo text, p_nota text)|true|3ea715d3971eeecd9510a64a39d8a7da
+public.resolver_solicitud_personal_admin(p_id uuid, p_aprobar boolean, p_motivo text)|true|e566a98e8d9a350ea470022e2a99eae3
+public.resumen_conciliacion_pagos_admin(p_fecha date)|true|9e5df6ea517eb85ae0c2681daaf83759
+public.resumen_ganancias(fecha_desde timestamp with time zone, fecha_hasta timestamp with time zone)|false|9c08f0a6570c582b24ce86462adc53b7
+public.retirar_repuesto_orden(p_repuesto_id uuid, p_cantidad integer)|true|1650b238be823a1640475e9fe7f4a40b
+public.reversar_movimiento_caja(p_movimiento_id uuid, p_motivo text)|true|3e58dda7f084bedf52bb31de4a6b527b
+public.seriales_disponibles(p_variant_id uuid, p_client_transaction_id uuid)|true|3d07f9af3f7c11c7c6ea470e0f1bfc46
+public.set_updated_at()|false|9b1889f56258bf9d6554213c05019c76
+public.sincronizar_conciliaciones_pago_admin(p_desde timestamp with time zone, p_hasta timestamp with time zone)|true|07ec7945895e53fd278177ccc50653c4
+public.solicitar_autorizacion(p_tipo text, p_motivo text, p_recurso_tipo text, p_recurso_id text, p_payload jsonb)|true|51e2778706f4968198edd00039f2a02d
+public.solicitudes_personal_admin(p_estado text, p_limit integer)|true|dd2fa08375bacb2906cd0ad3b317229b
+public.sucursales_admin()|true|27a6aa762e3f4ffac408fb7eeef0c4bb
+public.top_productos_ganancia(fecha_desde timestamp with time zone, fecha_hasta timestamp with time zone, lim integer)|false|49036ba98e5df9167e34075187cbd255
+public.validar_contexto_caja()|true|3d1cc169843e0773f619fb6b651b1bc3
+public.validar_contexto_venta_autenticada()|true|5e65784911921bc73e4304aa26d882ea
+public.validar_linea_venta_catalogo()|true|189a49b27600d3a71fa8c014361f6b32
+public.validar_stock(p_variant_id uuid, p_location_id uuid, p_cantidad integer)|false|9d53fc56e933e73e206170ec595d1ce0
+public.validar_totales_venta_diferido()|true|4d4a8391d49570190186900226c3ae3f
+public.variantes_actualizadas_desde(desde timestamp with time zone)|false|73b22c8e311e24900659ae3db0780d02
+public.variantes_por_categoria(cat_id uuid)|false|e7048ba440c0b1fc5e8a736e93b9b236
+public.vincular_documento_recepcion_admin(p_recepcion_id uuid, p_storage_path text)|true|ec1d771460edd790b99baaa270738af4
+public.whatsapp_outbox_admin(p_estado text, p_limit integer)|true|ad952b40e5c1357b7eafd113565bff14
+public.whatsapp_plantillas_admin()|true|22f6f28ed1b623eeda28038c452ac306

@@ -20,7 +20,7 @@ type Detalle = {
 type SerialPendiente = { id: string; variant_id: string; serial_number: string; esperado: boolean; encontrado: boolean }
 
 export default function ConteoInventario() {
-  const { staff, isAdmin } = useAuth()
+  const { puede } = useAuth()
   const { showToast } = useToast()
   const [conteos, setConteos] = useState<Conteo[]>([])
   const [actual, setActual] = useState<Conteo | null>(null)
@@ -31,8 +31,8 @@ export default function ConteoInventario() {
   const [resolviendo, setResolviendo] = useState<SerialPendiente | null>(null)
   const [resolucionTexto, setResolucionTexto] = useState('')
   const [tipoResolucion, setTipoResolucion] = useState('')
-  const puedeContar = isAdmin || ['tecnico', 'encargado', 'jefa'].includes(staff?.puesto || '')
-  const puedeCerrar = isAdmin || ['encargado', 'jefa'].includes(staff?.puesto || '')
+  const puedeContar = puede('operar_inventario')
+  const puedeCerrar = puede('supervisar')
 
   const load = async () => {
     const { data } = await supabase.from('inventarios_fisicos').select('id,estado,fecha_inicio,fecha_cierre,observacion').order('fecha_inicio', { ascending: false })

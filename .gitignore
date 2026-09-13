@@ -34,3 +34,11 @@ supabase/.temp/
 !.p04-pgtest/package.json
 !.p04-pgtest/package-lock.json
 .p04-pgtest/pgdata*
+.p04-pgtest/huella-local-*
+
+# Entorno aislado de E2E de navegador (backend Supabase simulado). Se versiona
+# sólo el manifiesto; el bundle de prueba y node_modules se regeneran.
+.p1-e2e/*
+!.p1-e2e/package.json
+!.p1-e2e/package-lock.json
+!.p1-e2e/vite.e2e.config.mjs

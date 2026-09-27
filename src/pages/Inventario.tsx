@@ -182,7 +182,7 @@ export default function Inventario() {
             <div key={f.variant_id} className={`bg-[#161b22] rounded-2xl border p-3 ${inactivo ? 'border-red-500/20 opacity-70' : 'border-[#30363d]'}`}>
               <div className="flex items-center gap-3">
                 {img ? (
-                  <img src={img} alt="" className="w-11 h-11 rounded-lg object-cover shrink-0 bg-[#21262d]"
+                  <img src={img} alt="" className="w-11 h-11 rounded-lg object-contain shrink-0 bg-[#21262d]"
                     onError={(e) => { e.currentTarget.style.display = 'none' }} />
                 ) : (
                   <div className="w-11 h-11 rounded-lg bg-[#21262d] flex items-center justify-center shrink-0"><Package size={18} className="text-gray-600" /></div>
@@ -263,7 +263,7 @@ export default function Inventario() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       {img ? (
-                        <img src={img} alt="" className="w-8 h-8 rounded-md object-cover shrink-0 bg-[#21262d]"
+                        <img src={img} alt="" className="w-8 h-8 rounded-md object-contain shrink-0 bg-[#21262d]"
                           onError={(e) => { e.currentTarget.style.display = 'none' }} />
                       ) : (
                         <div className="w-8 h-8 rounded-md bg-[#21262d] flex items-center justify-center shrink-0"><Package size={14} className="text-gray-600" /></div>
@@ -431,7 +431,6 @@ export default function Inventario() {
           categorias={categorias}
           modelos={modelos}
           locationId={staff?.location_id ?? null}
-          staffId={staff?.id ?? null}
           stockMinimoDefault={config.stock_minimo_default}
           onClose={() => setNuevoModal(null)}
           onSaved={async () => { setNuevoModal(null); await cargar() }}
@@ -445,13 +444,12 @@ export default function Inventario() {
   )
 }
 
-function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locationId, staffId, stockMinimoDefault, onClose, onSaved }: {
+function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locationId, stockMinimoDefault, onClose, onSaved }: {
   varianteDe?: { id: string; nombre: string; categoria_id: string | null }
   prefillBarcode?: string
   categorias: Categoria[]
   modelos: Modelo[]
   locationId: string | null
-  staffId: string | null
   stockMinimoDefault: number
   onClose: () => void
   onSaved: () => void
@@ -497,15 +495,13 @@ function ModalProducto({ varianteDe, prefillBarcode, categorias, modelos, locati
       }).select('id').single()
       if (e2 || !variant) throw new Error(e2?.code === '23505' ? 'Ese código de barras ya está en uso' : (e2?.message || 'No se pudo crear la variante'))
       const cantidad = Math.max(0, Number(stockInicial) || 0)
-      const { error: e3 } = await supabase.from('inventory').insert({
-        variant_id: variant.id, location_id: locationId, cantidad, stock_minimo: Math.max(0, Number(stockMinimo) || 0),
+      // _p4_b: una sola llamada. Antes eran dos (fila + movimiento) y un corte de red entre
+      // ambas dejaba stock que el libro no explicaba. La RPC las hace en la misma transacción.
+      const { error: e3 } = await supabase.rpc('registrar_stock_inicial', {
+        p_variant_id: variant.id, p_location_id: locationId, p_cantidad: cantidad,
+        p_stock_minimo: Math.max(0, Number(stockMinimo) || 0), p_motivo: 'Alta de producto nuevo',
       })
       if (e3) throw new Error(e3.message)
-      if (cantidad > 0) {
-        await supabase.from('inventory_movements').insert({
-          variant_id: variant.id, location_id: locationId, cantidad_delta: cantidad, motivo: 'Alta de producto nuevo', staff_id: staffId,
-        })
-      }
       showToast(esVariante ? 'Variante creada' : 'Producto creado', 'success')
       onSaved()
     } catch (e) {

@@ -26,7 +26,7 @@ export default async function ({ db, comprobar }) {
   await q(`set local session_replication_role = replica`)
 
   const A = ids(), uA = ids(), sA = ids()
-  const pNS = ids(), vNS = ids(), pS = ids(), vS = ids()
+  const pNS = ids(), vNS = ids(), pS = ids(), vS = ids(), pNS2 = ids(), vNS2 = ids()
   const caja = ids(), venta = ids()
 
   await q(`insert into auth.users(id) values ($1)`, [uA])
@@ -47,6 +47,9 @@ export default async function ({ db, comprobar }) {
   // Producto con IMEI: el stock se DERIVA del catálogo de unidades (2 disponibles = 2).
   await q(`insert into public.product_serials(variant_id, location_id, serial_number, estado) values
            ($1, $2, 'POS-IMEI-1', 'disponible'), ($1, $2, 'POS-IMEI-2', 'disponible')`, [vS, A])
+  // Variante SIN inventario todavía: es la que usa el alta atómica de _p4_b.
+  await q(`insert into public.products(id, nombre, sku, is_test, control_serial) values ($1, 'Accesorio nuevo POS', 'POS-NS2', false, false)`, [pNS2])
+  await q(`insert into public.product_variants(id, product_id) values ($1, $2)`, [vNS2, pNS2])
   await q(`insert into public.inventory(variant_id, location_id, cantidad, stock_minimo) values ($1, $2, 2, 1)`, [vS, A])
 
   // Venta con pago mixto que cuadra: 100 = 60 efectivo + 40 yape; total = subtotal + impuesto.
@@ -184,6 +187,57 @@ export default async function ({ db, comprobar }) {
   comprobar('el stock negativo lo rechaza la BASE, no sólo el código de cada función (P4.A)',
     eNegativo !== null && /inventory_cantidad_no_negativa|cantidad >= 0/.test(eNegativo),
     eNegativo || 'ACEPTÓ stock negativo')
+
+  // --------------------------------------------------------------------------------------------
+  // P4.B · el alta de inventario es atómica y es la ÚNICA vía: fila y movimiento, o nada.
+  // --------------------------------------------------------------------------------------------
+  const sesion = async (uid, fn) => {
+    await q('savepoint sesion')
+    await q(`set local role authenticated`)
+    await q(`select set_config('request.jwt.claims', $1, true)`, [JSON.stringify({ sub: uid, role: 'authenticated' })])
+    const run = async (sql, params = []) => {
+      await q('savepoint paso')
+      try { const r = await q(sql, params); await q('release savepoint paso'); return { filas: r.rows } }
+      catch (e) { await q('rollback to savepoint paso'); return { error: e.message } }
+    }
+    try { return await fn(run) } finally { await q('rollback to savepoint sesion') }
+  }
+
+  await sesion(uA, async (run) => {
+    // El INSERT directo ya no existe como vía: lo impide el privilegio, no una convención.
+    const directo = await run(
+      `insert into public.inventory(variant_id, location_id, cantidad, stock_minimo) values ($1, $2, 7, 1)`, [vNS2, A])
+    comprobar('crear inventario con un INSERT directo está cerrado para authenticated (P4.B)',
+      !!directo.error && /permission denied|denegado/i.test(directo.error), directo.error || 'ACEPTÓ el INSERT directo')
+
+    // Y la RPC deja SIEMPRE fila + movimiento coherentes, en una sola llamada.
+    const alta = await run(`select public.registrar_stock_inicial($1, $2, 7, 2, 'Alta desde prueba') as r`, [vNS2, A])
+    comprobar('registrar_stock_inicial da de alta la variante en una sola llamada',
+      !alta.error && !!alta.filas?.[0]?.r, alta.error || 'no devolvió la fila')
+
+    const cuadre = await run(`select i.cantidad,
+        coalesce((select sum(m.cantidad_delta) from public.inventory_movements m
+                   where m.variant_id = i.variant_id and m.location_id = i.location_id), 0) as libro,
+        (select count(*) from public.inventory_movements m
+          where m.variant_id = i.variant_id and m.location_id = i.location_id and m.staff_id is not null) as con_responsable
+      from public.inventory i where i.variant_id = $1`, [vNS2])
+    const f = cuadre.filas?.[0]
+    comprobar('el alta deja el libro explicando el stock, con responsable',
+      Number(f?.cantidad) === 7 && Number(f?.libro) === 7 && Number(f?.con_responsable) === 1,
+      cuadre.error || JSON.stringify(f))
+
+    // Un segundo intento no duplica nada y remite a la vía correcta para mover stock.
+    const repetido = await run(`select public.registrar_stock_inicial($1, $2, 7, 2, 'Alta repetida') as r`, [vNS2, A])
+    const tras = await run(`select count(*)::int as n from public.inventory_movements where variant_id = $1`, [vNS2])
+    comprobar('un segundo alta de la misma variante se rechaza y no escribe un segundo movimiento',
+      !!repetido.error && /ya tiene inventario/i.test(repetido.error) && Number(tras.filas?.[0]?.n) === 1,
+      repetido.error || `movimientos=${tras.filas?.[0]?.n}`)
+
+    // Producto con IMEI: su stock se deriva de las unidades, no de una cantidad inicial.
+    const serie = await run(`select public.registrar_stock_inicial($1, $2, 3, 0, 'No debería') as r`, [vS, A])
+    comprobar('un producto con IMEI no acepta cantidad inicial (su stock se deriva de las unidades)',
+      !!serie.error && /IMEI|serie/i.test(serie.error), serie.error || 'ACEPTÓ cantidad inicial en producto serializado')
+  })
 
   await q('rollback')
 }

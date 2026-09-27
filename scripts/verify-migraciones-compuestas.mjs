@@ -186,7 +186,9 @@ const P1 = ['_p1_a_transferencias_parciales.sql', '_p1_b_recepcion_idempotente.s
   // P3.D · privilegios: RT-1 (documento/dirección), RT-2 (TRUNCATE), RT-3 (setval de correlativos).
   '_p3_d_privilegios_hardening.sql',
   // P4.A · inventario: no-negatividad por restricción y cantidad sólo por función.
-  '_p4_a_inventario_integridad.sql']
+  '_p4_a_inventario_integridad.sql',
+  // P4.B · alta de inventario atómica por RPC; se retira el INSERT directo.
+  '_p4_b_stock_inicial_atomico.sql']
 
 // MUTACIÓN: ENSAYO_OMITIR=archivo.sql[,otro.sql] no aplica esas migraciones
 // nuevas, para demostrar que las pruebas de negocio FALLAN sin la corrección.

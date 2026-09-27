@@ -1536,11 +1536,9 @@ migración: 20/20 migraciones · 30/30 estructurales · **246/246** de negocio e
 
 | Pendiente | Por qué importa |
 |---|---|
-| El alta de inventario escribe la fila y su movimiento en **dos peticiones separadas** (`Inventario.tsx:500` y `:505`) | Un fallo de red entre ambas deja stock sin libro. La forma correcta es una RPC que haga las dos cosas en una transacción; exige cambiar la pantalla. |
 | **T5** (sobrante de transferencia sin contrapartida) | Decisión de negocio; expediente con cuatro opciones más arriba. Exposición cero hoy (0 transferencias, una sucursal). |
 | Reversión de unidades **con IMEI** sin interfaz | El servidor la soporta desde `p3_c`; la pantalla sólo ofrece la de líneas sin IMEI. |
 | Falta módulo de compras en el ensayo | La mutación de `p3_c` no es visible ahí; su evidencia vive en la suite de compras. |
-| `integracion.yml` sin correr en un runner Linux | Las pruebas profundas sólo han corrido en local. |
 
 ## Datos históricos: decisiones del negocio, no mías
 
@@ -1555,3 +1553,90 @@ tuyas, todas dentro de POS:
 3. Qué hacer con las **tres cajas cerradas con 0 contado** de agosto/septiembre: una caja cerrada es
    inmutable por diseño, así que la vía no es editarlas sino dejar constancia contable de que fueron
    cierres de prueba.
+
+# P4.B — Alta de inventario atómica y la foto que no se veía (2026-09-27)
+
+Cierra los dos puntos de ingeniería que quedaban de la auditoría POS y el defecto visual que reportó
+el dueño. Nada de CRM, WhatsApp ni SUNAT: sólo el núcleo POS.
+
+## 1 · `registrar_stock_inicial` — la fila y su movimiento, o ninguno
+
+`20260927162029_p4_b_stock_inicial_atomico.sql` (en producción).
+
+El alta de una variante en una sucursal hacía **dos peticiones** desde el navegador: un INSERT en
+`inventory` con la cantidad inicial y, después, otro en `inventory_movements`. Si la red se corta
+entre ambas —o si alguien llama sólo a la primera— queda stock que el libro no explica: es
+literalmente el desajuste que la auditoría encontró en filas históricas. Ahora hay una RPC
+`SECURITY DEFINER` que hace las dos escrituras **en la misma transacción**:
+
+- autorización igual que su función hermana `ajustar_stock`: capacidad `operar_inventario` y, para
+  quien no es administrador, su sucursal **activa** o una con `puede_inventario`. Fallo **cerrado**
+  si no hay sucursal;
+- rechaza cantidad inicial > 0 en producto con **IMEI/serie**: ahí el stock se deriva de
+  `product_serials` (invariante P0.2/P0.4) y se carga registrando cada unidad;
+- sin clave de idempotencia y sin necesitarla: la unicidad `(variant_id, location_id)` impide la fila
+  duplicada y, al no insertarse la fila, **tampoco se escribe el movimiento**, así que un doble clic
+  no puede duplicar nada. Si la fila ya existe manda a `ajustar_stock`, que es la vía que mueve stock
+  existente dejando rastro;
+- **se retira el INSERT de `inventory` a `authenticated`**: desde aquí la única forma de crear
+  inventario desde la aplicación es esta RPC. `stock_minimo` sigue editable (columna concedida en
+  P4.A) y `cantidad` sigue cerrada.
+
+Pantalla conectada: [src/pages/Inventario.tsx](../../src/pages/Inventario.tsx) sustituye los dos
+INSERT por una sola llamada `supabase.rpc('registrar_stock_inicial', …)`. Sin esto la corrección no
+llegaría al mostrador (y el INSERT directo, ya revocado, fallaría).
+
+Verificación en producción (paso 21, una sola consulta de lectura): 6 huellas observables ✓ ·
+`funciones_distintas 0` · `md5(prosrc)` de la RPC = ensayo · `anon_secdef 0` · INSERT de `inventory`
+cerrado para `authenticated` y `anon` · RPC ejecutable por `authenticated` y **no** por `anon` ·
+`stock_minimo` editable y `cantidad` cerrada · RPC `SECURITY DEFINER` con `search_path` fijado ·
+**174 migraciones** registradas · `md5(statements[1])` = md5 del archivo · versión asignada
+`20260927162029` · paridad de la lista PASS (`LC_ALL=C`: `140acf033ce1dc061296b4920ed7809d` en ambos
+lados; con la colación por defecto de macOS el `sort` desordena y da un falso negativo).
+
+`privilegios_columna_ok` vuelve `null` desde esta sesión: `execute_sql` entra como
+`supabase_read_only_user` y `information_schema.column_privileges` no le devuelve filas de
+`anon`/`authenticated`. Lo autoritativo son los `has_column_privilege`, los cuatro correctos.
+
+Prueba permanente y mutación: `scripts/compuesto/pos_integridad.mjs` sube a 22 comprobaciones con
+cinco propias de P4.B (INSERT directo rechazado como `authenticated`; la RPC crea fila + movimiento
+en una llamada; el libro explica el stock con su responsable; la segunda llamada se rechaza **sin**
+escribir un segundo movimiento; el producto con IMEI rechaza cantidad inicial). Con `_p4_b`: 21/21
+migraciones · 30/30 estructurales · **251/251** de negocio en 13 módulos. Con
+`ENSAYO_OMITIR=_p4_b_stock_inicial_atomico.sql`: **6 fallos**, entre ellos «crear inventario con un
+INSERT directo está cerrado para authenticated (P4.B) — ACEPTÓ el INSERT directo» y
+«function public.registrar_stock_inicial(...) does not exist».
+
+## 2 · `integracion.yml` en un runner Linux — cerrado sin cambios
+
+Primera ejecución real del workflow `Integración (PostgreSQL real + navegador)` en los runners de
+GitHub: run **36332296929**, job `postgres-y-navegador`, conclusión **success**, ningún paso fallido.
+No hizo falta corregir nada: las suites profundas pasan también fuera de macOS. Esto retira el
+último «sólo probado en local» de la lista.
+
+## 3 · La foto que no se veía — causa real y arreglo
+
+La imagen **sí estaba**: objeto `productos/bda81f0c-a435-4f96-ac45-0545fc303473.jpg`, 1 948 443
+bytes, `image/jpeg`, subido hoy; la URL pública responde HTTP 200 y `products.imagen_url` quedó
+guardada en AUD-001. El problema era de encuadre, exactamente como lo describió el dueño: la foto es
+**1848 × 4096** (retrato, ratio 0,45) y las miniaturas la pintaban con `object-cover`, que **recorta
+para llenar** el cuadrado y deja ver sólo la banda central. Un objeto en una esquina desaparece.
+
+Arreglo: `object-contain` (la foto **entra completa**, con franjas si hace falta) en
+[src/pages/Inventario.tsx](../../src/pages/Inventario.tsx),
+[src/pages/Venta.tsx](../../src/pages/Venta.tsx) y
+[src/components/SubirImagenProducto.tsx](../../src/components/SubirImagenProducto.tsx); además la
+previsualización del subidor es clicable y abre la imagen a pantalla completa, también `contain`,
+para comprobar el encuadre antes de guardar.
+
+Ofrecido y **no hecho** (queda a decisión del dueño): reducir la imagen en el navegador antes de
+subirla (~1200 px, JPEG ~85 %). Hoy se sube el archivo original de 1,9 MB y se descarga entero en
+cada pantalla de venta.
+
+## Lo que sigue siendo del dueño (sin cambios)
+
+Arqueo y cierre de la caja abierta del 2026-09-06 19:52 (Lima) · conteo físico con
+`iniciar_inventario_fisico` → `cerrar_inventario_fisico` · constancia contable de las tres cajas
+cerradas con 0 contado · decisión de T5 · Leaked Password Protection · confirmar registros de Auth
+deshabilitados · `WHATSAPP_APP_SECRET` y despliegue de `agente-whatsapp` · `supabase migration repair`
+· validación de impresora física.

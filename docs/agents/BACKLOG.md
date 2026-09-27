@@ -65,7 +65,7 @@ por `p2_b`.)
 |---|---|---|
 | 24 | Capacidades centralizadas (`p2_h` a mano, `p2_i` generada: 17 funciones) + flags por sucursal aplicados + `puede()` en la UI | DONE (prod) · mutación 1 falla sin `p2_i` |
 | 23 | Reimpresión con rastro y copia numerada (`p2_g`) + bridge local revalidado (IPv6 corregido) | DONE (prod) · negocio 9 · **impresora física NO validada (sin hardware)** |
-| — | DevOps: referencias de producción versionadas (`scripts/referencias/`) + workflow `integracion.yml` (ensayo compuesto, suites SQL, E2E) en PR | DONE (local) · revisado 2026-09-17: `npm ci` en los 3 manifiestos, PostgreSQL embebido documentado y comprobado en preflight, guarda anti-`.env`/anti-secretos, `shell: bash` (`-eo pipefail`) para que `tee` no enmascare el código de salida, una suite por paso y artefacto de evidencia · **aún sin ejecución en runner Linux** (`gh run list --workflow=357393628` = 0 filas) |
+| — | DevOps: referencias de producción versionadas (`scripts/referencias/`) + workflow `integracion.yml` (ensayo compuesto, suites SQL, E2E) en PR | DONE (local) · revisado 2026-09-17: `npm ci` en los 3 manifiestos, PostgreSQL embebido documentado y comprobado en preflight, guarda anti-`.env`/anti-secretos, `shell: bash` (`-eo pipefail`) para que `tee` no enmascare el código de salida, una suite por paso y artefacto de evidencia · **ejecutado en runner Linux** el 2026-09-27: run 36332296929, job `postgres-y-navegador`, conclusión `success`, sin correcciones |
 | — | DevOps: `supabase migration repair` para reconstrucción desde cero | BLOCKED: acción del dueño |
 
 ## Datos de producción a clasificar (no sanear a ciegas)

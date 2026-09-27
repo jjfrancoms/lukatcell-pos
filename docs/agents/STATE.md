@@ -1,6 +1,6 @@
 # Agent State — LukatCell POS
 
-Última actualización: 2026-09-17 (agente 4: fechas en hora de Lima, estado del release y hallazgos del red team). Checkpoint reanudable: [CURRENT_EXECUTION.md](CURRENT_EXECUTION.md).
+Última actualización: 2026-09-27 (olas P3, P4.A y P4.B en producción; auditoría de integridad POS). Checkpoint reanudable: [CURRENT_EXECUTION.md](CURRENT_EXECUTION.md).
 
 ## Stack
 
@@ -8,7 +8,9 @@ React + TypeScript + Vite · Supabase (Postgres 17.6, Auth, Edge Functions, Stor
 
 ## Producción
 
-- **173 migraciones registradas** (`p4_a` el 2026-09-27: inventario con no-negatividad por restricción y cantidad sólo por función).
+- **174 migraciones registradas** (`p4_b` el 2026-09-27: alta de inventario atómica por RPC
+  `registrar_stock_inicial`; `authenticated` pierde el INSERT directo sobre `inventory`).
+- **173 migraciones** (`p4_a` el 2026-09-27: inventario con no-negatividad por restricción y cantidad sólo por función).
 - **172 migraciones** (las 4 de la ola P3 el 2026-09-27; ver CURRENT_EXECUTION).
 - **168 migraciones** al cierre de OLA 1–4. Las 15 de OLA 1–4 se aplicaron el 2026-09-13, una a una, cada una
   verificada antes de la siguiente (huellas de columnas, constraints, policies, grants, RLS y privilegios
@@ -40,8 +42,9 @@ React + TypeScript + Vite · Supabase (Postgres 17.6, Auth, Edge Functions, Stor
 - Gates locales reproducidos el 2026-09-17 sobre el árbol de `5149079`: `npm test` (exit 0),
   `npm run lint` (exit 0, 0 errores), `npm run build` (exit 0), y las 4 suites SQL contra PostgreSQL
   real: transferencias 63/63, recepción 96/96, caja 32/32, pagos 41/41 (exit 0 las cuatro).
-- Workflow `Integración (PostgreSQL real + navegador)`: **0 ejecuciones**. Evidencia:
-  `gh run list --workflow=357393628` no devuelve ninguna fila.
+- Workflow `Integración (PostgreSQL real + navegador)`: primera ejecución en runner Linux el
+  2026-09-27, run **36332296929**, job `postgres-y-navegador`, conclusión **success**, sin pasos
+  fallidos y sin necesitar correcciones.
 - Despliegue de Vercel: **NO VERIFICADO desde esta sesión.** El token disponible sólo ve el equipo
   `msjuanjf-5186s-projects`, cuyo listado de proyectos vuelve vacío, y no hay `.vercel/project.json`
   en el repo. El estado `READY` lo reporta el coordinador; aquí no hay evidencia reproducible.
@@ -106,5 +109,7 @@ despliegue de `agente-whatsapp` · credenciales POS externo/Culqi · `supabase m
 ## Próximo trabajo
 
 Datos de producción a clasificar con el negocio (5 reservas IMEI vencidas, 1 caja abierta, 2 conciliaciones
-pendientes); deuda P2 de OLA 1; validación de impresora física con hardware.
+pendientes); decisión de T5 (sobrante de transferencia); interfaz para revertir unidades con IMEI (el
+servidor ya la soporta desde `p3_c`); módulo de compras en el ensayo compuesto; validación de impresora
+física con hardware. La deuda interna de ingeniería del núcleo POS queda cerrada con `p4_b`.
 Ver [BACKLOG.md](BACKLOG.md) y [CURRENT_EXECUTION.md](CURRENT_EXECUTION.md).

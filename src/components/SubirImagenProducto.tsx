@@ -75,6 +75,8 @@ export default function SubirImagenProducto({ valor, onChange, productoId }: Pro
     setQrAbierto(true)
   }
 
+  const [ampliada, setAmpliada] = useState(false)
+
   const subir = async (file: File) => {
     if (!file.type.startsWith('image/')) { setError('Elige un archivo de imagen'); return }
     if (file.size > MAX_BYTES) { setError('La imagen no debe superar 5 MB'); return }
@@ -92,11 +94,16 @@ export default function SubirImagenProducto({ valor, onChange, productoId }: Pro
     <div>
       <label className="text-xs text-gray-500 font-semibold">Imagen del producto</label>
       <div className="flex items-center gap-3 mt-1">
-        <div className="w-16 h-16 rounded-xl bg-[#0d1117] border border-[#30363d] overflow-hidden shrink-0 flex items-center justify-center">
+        {/* object-contain, no object-cover: una foto de celular es vertical (p. ej. 1848×4096) y
+            recortarla en un cuadro deja fuera el objeto si no está justo en el centro. Se ve
+            completa, y se puede ampliar para comprobar el encuadre antes de guardar. */}
+        <button type="button" onClick={() => { if (valor) setAmpliada(true) }} disabled={!valor}
+          title={valor ? 'Ver la foto completa' : undefined}
+          className="w-16 h-16 rounded-xl bg-[#0d1117] border border-[#30363d] overflow-hidden shrink-0 flex items-center justify-center disabled:cursor-default">
           {valor
-            ? <img src={valor} alt="" className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+            ? <img src={valor} alt="" className="w-full h-full object-contain" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
             : <ImageOff size={18} className="text-gray-600" />}
-        </div>
+        </button>
         <div className="flex-1 min-w-0 space-y-1.5">
           <input ref={inputRef} type="file" accept="image/*" className="hidden"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) subir(f); e.target.value = '' }} />
@@ -115,6 +122,12 @@ export default function SubirImagenProducto({ valor, onChange, productoId }: Pro
         </div>
       </div>
       {error && <p className="text-[11px] text-red-400 mt-1">{error}</p>}
+
+      {ampliada && valor && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={() => setAmpliada(false)}>
+          <img src={valor} alt="" className="max-h-[85vh] max-w-full object-contain rounded-xl" />
+        </div>
+      )}
 
       {qrAbierto && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4" onClick={() => setQrAbierto(false)}>

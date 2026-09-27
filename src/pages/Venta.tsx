@@ -362,7 +362,7 @@ export default function Venta() {
                 className="group text-left min-w-0 bg-[#161b22] rounded-xl border border-[#30363d] overflow-hidden hover:border-cyan-500 hover:shadow-lg hover:shadow-cyan-500/10 transition-all active:scale-[0.98]">
                 <div className="h-28 sm:h-32 w-full bg-[#21262d] overflow-hidden relative">
                   {img ? (
-                    <img src={img} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy"
+                    <img src={img} alt="" className="w-full h-full object-contain p-1 group-hover:scale-105 transition-transform duration-300" loading="lazy"
                       onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; e.currentTarget.nextElementSibling?.classList.remove('hidden') }} />
                   ) : null}
                   <div className={`w-full h-full items-center justify-center ${img ? 'hidden' : 'flex'}`}><ShoppingBag size={28} className="text-gray-600" /></div>

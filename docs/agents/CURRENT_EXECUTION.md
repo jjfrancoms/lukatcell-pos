@@ -1472,3 +1472,86 @@ origen no descuenta nada: aparece stock que nadie envió.
 **Recomendación:** C. Es la única que deja el inventario global cuadrado y mantiene el rastro de
 quién decidió qué. Requiere tu confirmación sobre el caso límite: si el origen no tiene ese stock,
 ¿se rechaza la recepción o se permite el ajuste negativo con autorización?
+
+---
+
+# AUDITORÍA DE INTEGRIDAD DEL NÚCLEO POS (2026-09-27)
+
+Alcance fijado por el dueño: **sólo POS** — ventas, caja, inventario, IMEI, transferencias y
+compras. CRM, WhatsApp y comprobantes electrónicos quedan fuera de esta ronda a propósito.
+
+Se comprobaron 21 invariantes con consultas de sólo lectura contra producción; cada cifra es un
+conteo de violaciones y debe ser 0.
+
+## Resultado: el mecanismo está correcto
+
+18 invariantes dieron **0 violaciones**: el dinero cobrado cuadra con el total de cada venta,
+`total = subtotal + impuesto`, cada línea vale `(precio − descuento) × cantidad`, el día comercial
+es el de Lima, no hay números de venta duplicados, ninguna venta real contiene producto de prueba,
+el stock nunca es negativo, el stock serializado coincide con las unidades disponibles del catálogo,
+no hay IMEI repetidos ni estados fuera de dominio, la diferencia de caja es `contado − esperado`, el
+signo de cada movimiento corresponde a su tipo, ninguna venta apunta a una caja de otro cajero o
+sucursal, no hay líneas ni pagos huérfanos, ninguna devolución supera su venta, y los derivados de
+transferencias y compras son coherentes.
+
+## Las tres cifras que no eran cero
+
+| Señal | Qué era en realidad |
+|---|---|
+| 34 filas con stock que el libro no explica | **Dos cosas distintas.** Las 999999 unidades de «Servicio técnico» son un **centinela deliberado** de `20260819222111_inventario_servicio_tecnico.sql` (no es producto físico y el trigger de venta exige una fila de inventario): correcto, se queda. El resto son filas cargadas por migraciones antiguas sin movimiento que las explique: 18 sin ningún movimiento y 16 con movimientos que no suman el agregado. Dato histórico, no defecto del código actual. |
+| 2 cajas cerradas con esperado que no cuadra | Una es **mi chequeo incompleto**: el esperado incluye las ventas en efectivo (2000 + 153 = 2153 ✓). La otra es **dato histórico inconsistente**: inicial 2500, esperado 2343, sin ventas ni movimientos que expliquen los 157. Las tres cajas reales se cerraron declarando **0 contado**, lo que produce diferencias de −2343 y −2153 que no son faltantes de caja sino cierres de prueba de agosto/septiembre. |
+| 8 movimientos sin responsable | Todos con motivo «Saneamiento administrativo de datos QA históricos» (2026-09-09): son de la migración de aislamiento QA de P0.4. Trazables a una migración, no a una persona. Legítimos. |
+
+## Dos defectos reales del mecanismo, cerrados en `20260927155658_p4_a_inventario_integridad`
+
+1. **`public.inventory` no tenía ninguna restricción de no-negatividad.** Cada función lo comprobaba
+   por su cuenta (`ajustar_stock`, el despacho de transferencias, la reversión de recepciones): eso
+   es disciplina repetida en código, no una garantía de la base. Ahora hay `check (cantidad >= 0)`.
+2. **La cantidad se podía escribir por la API sin dejar movimiento.** La policy
+   `inventario_escritura_admin` (ALL) permitía a un administrador hacer `PATCH /rest/v1/inventory`
+   cambiando el stock **sin escribir en el libro** — exactamente el desajuste que la auditoría
+   encontró en 16 filas. Se retiró el UPDATE de tabla y se devolvió sólo `stock_minimo`, así que la
+   cantidad sólo la mueven las funciones que escriben el movimiento con su responsable.
+
+Verificación en producción (paso 20): 6 huellas observables ✓ · restricción presente ·
+`cantidad` cerrada · alta de inventario y `stock_minimo` intactos · `ajustar_stock` disponible ·
+0 filas negativas · 173 registradas · md5 del texto registrado = archivo · paridad de la lista PASS.
+
+## Prueba permanente: `scripts/compuesto/pos_integridad.mjs`
+
+Las comprobaciones de la auditoría quedan dentro del ensayo (13.º módulo, 17 comprobaciones) para
+que ninguna migración futura pueda romperlas. Disciplina del módulo:
+
+- cada invariante exige que el **censo no esté vacío**: «la consulta no encontró culpables» sobre
+  cero filas es FAIL, no PASS;
+- cada invariante calculado se **rompe a propósito** en un savepoint y se comprueba que la consulta
+  lo detecta — una comprobación que no puede fallar no comprueba nada;
+- los invariantes sostenidos por la base (IMEI único, línea huérfana, stock negativo) se prueban
+  **intentando violarlos de verdad**: deben ser rechazados.
+
+Mutación: sin `_p4_a`, el módulo falla con «ACEPTÓ stock negativo». Ensayo completo con la
+migración: 20/20 migraciones · 30/30 estructurales · **246/246** de negocio en 13 módulos.
+
+## Deuda POS que queda abierta (declarada, no escondida)
+
+| Pendiente | Por qué importa |
+|---|---|
+| El alta de inventario escribe la fila y su movimiento en **dos peticiones separadas** (`Inventario.tsx:500` y `:505`) | Un fallo de red entre ambas deja stock sin libro. La forma correcta es una RPC que haga las dos cosas en una transacción; exige cambiar la pantalla. |
+| **T5** (sobrante de transferencia sin contrapartida) | Decisión de negocio; expediente con cuatro opciones más arriba. Exposición cero hoy (0 transferencias, una sucursal). |
+| Reversión de unidades **con IMEI** sin interfaz | El servidor la soporta desde `p3_c`; la pantalla sólo ofrece la de líneas sin IMEI. |
+| Falta módulo de compras en el ensayo | La mutación de `p3_c` no es visible ahí; su evidencia vive en la suite de compras. |
+| `integracion.yml` sin correr en un runner Linux | Las pruebas profundas sólo han corrido en local. |
+
+## Datos históricos: decisiones del negocio, no mías
+
+No se tocó ni una fila. Para que el registro quede realmente limpio hacen falta tres decisiones
+tuyas, todas dentro de POS:
+
+1. **Conteo físico** con el flujo que ya existe (`iniciar_inventario_fisico` → escanear/contar →
+   `cerrar_inventario_fisico`): es el único camino que ajusta el stock **escribiendo el movimiento**
+   y deja el libro explicando el agregado desde ese punto.
+2. **Arqueo y cierre de la caja abierta** desde el 2026-09-06 19:52 (hora de Lima), que hoy bloquea
+   el cierre diario.
+3. Qué hacer con las **tres cajas cerradas con 0 contado** de agosto/septiembre: una caja cerrada es
+   inmutable por diseño, así que la vía no es editarlas sino dejar constancia contable de que fueron
+   cierres de prueba.

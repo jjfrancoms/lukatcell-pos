@@ -184,7 +184,9 @@ const P1 = ['_p1_a_transferencias_parciales.sql', '_p1_b_recepcion_idempotente.s
   // P3.C · B3 (corrección que resta sobre orden ya recibida) y B4 (cierre con faltantes).
   '_p3_c_recepcion_b3_b4.sql',
   // P3.D · privilegios: RT-1 (documento/dirección), RT-2 (TRUNCATE), RT-3 (setval de correlativos).
-  '_p3_d_privilegios_hardening.sql']
+  '_p3_d_privilegios_hardening.sql',
+  // P4.A · inventario: no-negatividad por restricción y cantidad sólo por función.
+  '_p4_a_inventario_integridad.sql']
 
 // MUTACIÓN: ENSAYO_OMITIR=archivo.sql[,otro.sql] no aplica esas migraciones
 // nuevas, para demostrar que las pruebas de negocio FALLAN sin la corrección.

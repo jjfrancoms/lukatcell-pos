@@ -8,7 +8,8 @@ React + TypeScript + Vite · Supabase (Postgres 17.6, Auth, Edge Functions, Stor
 
 ## Producción
 
-- **172 migraciones registradas** (las 4 de la ola P3 el 2026-09-27; ver CURRENT_EXECUTION).
+- **173 migraciones registradas** (`p4_a` el 2026-09-27: inventario con no-negatividad por restricción y cantidad sólo por función).
+- **172 migraciones** (las 4 de la ola P3 el 2026-09-27; ver CURRENT_EXECUTION).
 - **168 migraciones** al cierre de OLA 1–4. Las 15 de OLA 1–4 se aplicaron el 2026-09-13, una a una, cada una
   verificada antes de la siguiente (huellas de columnas, constraints, policies, grants, RLS y privilegios
   de columna; `md5(prosrc)` de cada función tocada; texto registrado = archivo del repo).
@@ -17,6 +18,9 @@ React + TypeScript + Vite · Supabase (Postgres 17.6, Auth, Edge Functions, Stor
 - Tras `p3_d`: 0 tablas con TRUNCATE para `authenticated`, 0 secuencias accesibles (correlativos
   fiscales incluidos), `documento`/`direccion` de clientes sólo por la RPC de administración, y los
   tres libros de movimientos sin UPDATE/DELETE. Tras `p3_a`: 0 funciones sin `search_path`.
+- Auditoría de integridad POS (2026-09-27): 18 de 21 invariantes con 0 violaciones; las 3 restantes
+  investigadas una a una (centinela deliberado, chequeo propio incompleto y datos históricos). Las
+  21 quedan como prueba permanente en `scripts/compuesto/pos_integridad.mjs`.
 - Invariantes vigentes: tablas públicas sin RLS = 0; SECURITY DEFINER ejecutable por `anon` = 0;
   `products.costo` oculto para `authenticated` (en SELECT); productos/ventas `is_test` fuera de finanzas.
   **Estos invariantes no cubren TRUNCATE ni los privilegios de secuencia**, que la RLS no filtra: ver

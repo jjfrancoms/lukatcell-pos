@@ -63,7 +63,7 @@ export default async function ({ db, comprobar }) {
 
   // Transferencia creada y despachada desde la activa (una sola evaluación por llamada).
   const tr = await como(uAdm, `select to_jsonb(public.despachar_transferencia_stock(
-      (public.crear_transferencia_stock($1::uuid, $2::jsonb)).id)) as t`, [A, JSON.stringify([{ variant_id: V, cantidad: 2 }])])
+      (public.crear_transferencia_stock($1::uuid, $2::jsonb, null, gen_random_uuid())).id)) as t`, [A, JSON.stringify([{ variant_id: V, cantidad: 2 }])])
   comprobar('la transferencia nace con origen en la sucursal activa y su creador puede despacharla',
     !tr.error && tr.filas[0].t.origen_id === B && tr.filas[0].t.estado === 'en_transito', tr.error || JSON.stringify(tr.filas[0].t))
 

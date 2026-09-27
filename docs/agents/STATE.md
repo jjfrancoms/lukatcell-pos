@@ -1,6 +1,6 @@
 # Agent State — LukatCell POS
 
-Última actualización: 2026-09-13. Checkpoint reanudable: [CURRENT_EXECUTION.md](CURRENT_EXECUTION.md).
+Última actualización: 2026-09-17 (agente 4: fechas en hora de Lima, estado del release y hallazgos del red team). Checkpoint reanudable: [CURRENT_EXECUTION.md](CURRENT_EXECUTION.md).
 
 ## Stack
 
@@ -8,17 +8,39 @@ React + TypeScript + Vite · Supabase (Postgres 17.6, Auth, Edge Functions, Stor
 
 ## Producción
 
-- **168 migraciones registradas.** Las 15 de OLA 1–4 se aplicaron el 2026-09-13, una a una, cada una
+- **172 migraciones registradas** (las 4 de la ola P3 el 2026-09-27; ver CURRENT_EXECUTION).
+- **168 migraciones** al cierre de OLA 1–4. Las 15 de OLA 1–4 se aplicaron el 2026-09-13, una a una, cada una
   verificada antes de la siguiente (huellas de columnas, constraints, policies, grants, RLS y privilegios
   de columna; `md5(prosrc)` de cada función tocada; texto registrado = archivo del repo).
 - Paridad producción ↔ repositorio: lista de migraciones idéntica (md5), 195 funciones, las 72 tocadas
   por el release idénticas al ensayo compuesto.
+- Tras `p3_d`: 0 tablas con TRUNCATE para `authenticated`, 0 secuencias accesibles (correlativos
+  fiscales incluidos), `documento`/`direccion` de clientes sólo por la RPC de administración, y los
+  tres libros de movimientos sin UPDATE/DELETE. Tras `p3_a`: 0 funciones sin `search_path`.
 - Invariantes vigentes: tablas públicas sin RLS = 0; SECURITY DEFINER ejecutable por `anon` = 0;
-  `products.costo` oculto para `authenticated`; productos/ventas `is_test` fuera de finanzas.
+  `products.costo` oculto para `authenticated` (en SELECT); productos/ventas `is_test` fuera de finanzas.
+  **Estos invariantes no cubren TRUNCATE ni los privilegios de secuencia**, que la RLS no filtra: ver
+  los hallazgos abiertos del red team en BACKLOG.
 - Deriva histórica codificada en `20260913223130_p1_e_reconcilia_resolver_turno_fecha`. Quedan 33
   funciones que difieren del repo sólo en formato/comentarios (verificadas; ninguna migración nueva las toca).
 - Edge Function `agente-whatsapp`: el código con verificación de firma está en el repo, **no desplegada**
   (decisión del dueño; requiere `WHATSAPP_APP_SECRET`).
+
+## Release publicado
+
+- Commit de release: **`5149079`** (`OLA 1–4: transferencias, recepción, caja, …`), `main`.
+  Evidencia: `git log --oneline -1` → `5149079`.
+- **CI PASS** en ese commit: workflow `CI`, run `34788694062`, conclusión `success`,
+  `headSha 514907991ca8d51cdcccc93d86e447f1142f2b99`. Evidencia:
+  `gh run view 34788694062 --json headSha,conclusion`.
+- Gates locales reproducidos el 2026-09-17 sobre el árbol de `5149079`: `npm test` (exit 0),
+  `npm run lint` (exit 0, 0 errores), `npm run build` (exit 0), y las 4 suites SQL contra PostgreSQL
+  real: transferencias 63/63, recepción 96/96, caja 32/32, pagos 41/41 (exit 0 las cuatro).
+- Workflow `Integración (PostgreSQL real + navegador)`: **0 ejecuciones**. Evidencia:
+  `gh run list --workflow=357393628` no devuelve ninguna fila.
+- Despliegue de Vercel: **NO VERIFICADO desde esta sesión.** El token disponible sólo ve el equipo
+  `msjuanjf-5186s-projects`, cuyo listado de proyectos vuelve vacío, y no hay `.vercel/project.json`
+  en el repo. El estado `READY` lo reporta el coordinador; aquí no hay evidencia reproducible.
 
 ## Migraciones de OLA 1–4 (en producción)
 
@@ -42,8 +64,17 @@ React + TypeScript + Vite · Supabase (Postgres 17.6, Auth, Edge Functions, Stor
 
 ## Efectos operativos que el negocio debe conocer
 
-- La caja abierta desde 2026-09-07 **bloquea el próximo cierre diario** hasta cerrarla con su arqueo.
-- La edición CRM de documento, segmento y consentimientos es **sólo de administración**.
+- La caja abierta desde el **2026-09-06 19:52 hora de Lima** (`2026-09-07 00:52 UTC`; producción corre
+  en `TimeZone=UTC` y la fecha comercial del negocio es la de `America/Lima`, UTC−5) **bloquea el
+  próximo cierre diario** hasta cerrarla con su arqueo. Las 5 reservas IMEI vencidas son de la misma
+  ventana: 2026-09-06 19:31–19:52 Lima.
+- La edición CRM de **segmento, consentimientos y puntos** es **sólo de administración**
+  (`actualizar_cliente_crm` exige admin y `authenticated` perdió el INSERT/UPDATE de tabla).
+  **Corrección (2026-09-17):** `documento` y `direccion` NO quedaron restringidos — `_p2_d` les da
+  privilegio de columna a `authenticated` (líneas 119–121 de
+  `20260913224318_p2_d_crm_alcance.sql`) y la policy `clientes_actualizacion_autenticados` es
+  `USING true / WITH CHECK true`: cualquier autenticado puede reescribirlos en cualquier cliente.
+  Hallazgo abierto del red team (ver BACKLOG).
 - Los flags `puede_inventario` / `puede_taller` por sucursal se aplican de verdad en el servidor.
 - Habilitar una 2.ª sucursal ya es seguro a nivel de servidor (`p2_b` en producción).
 

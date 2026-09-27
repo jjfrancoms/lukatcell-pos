@@ -7,7 +7,22 @@ name: Integración (PostgreSQL real + navegador)
 # Va en un workflow aparte del CI de push a main a propósito: estos jobs se validaron en macOS y
 # todavía no en un runner Linux; un fallo del entorno del runner no debe bloquear el push de release
 # mientras no se haya visto verde aquí. Cuando lo esté, puede promoverse a required check.
-# No usa ningún secreto: el E2E construye el bundle con un origen Supabase falso y lo verifica.
+#
+# PostgreSQL: NO hay `services:` ni base externa. Cada script levanta su propio servidor con binarios
+# embebidos (paquete `embedded-postgres`, declarado en .p04-pgtest/package-lock.json, que trae
+# @embedded-postgres/linux-x64 para este runner) en un puerto propio: 54333 transferencias,
+# 54336 pagos, 54339 recepción, 54341 caja, 54360 ensayo compuesto. Se inicializan sin persistencia
+# y se destruyen al terminar. PostgreSQL no arranca como root; ubuntu-latest corre como `runner`.
+#
+# SECRETOS: este workflow no usa NINGUNO (no hay `secrets.*` en todo el archivo). El `.env` del repo
+# apunta a PRODUCCIÓN y está en .gitignore (`.env*`), así que no llega al checkout; el paso
+# "Guarda: sin secretos de producción" lo comprueba y falla cerrado si apareciera. El E2E construye
+# el bundle con un origen Supabase FALSO (envDir vacío) y escanea el bundle resultante.
+#
+# FALLO CERRADO: ningún paso lleva `|| true` ni `continue-on-error`. `defaults.run.shell: bash` fija
+# `-eo pipefail`, de modo que `node … | tee log` propaga el código de salida del script, no el de tee.
+# Los pasos de comprobación llevan `if: ${{ !cancelled() }}` para que se ejecuten todos y quede toda
+# la evidencia aunque uno falle: eso NO convierte el job en verde — un paso fallido falla el job.
 
 on:
   pull_request:
@@ -20,6 +35,10 @@ permissions:
 concurrency:
   group: integracion-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   postgres-y-navegador:
@@ -34,6 +53,25 @@ jobs:
         with:
           node-version: 24
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            .p04-pgtest/package-lock.json
+            .p1-e2e/package-lock.json
+
+      - name: "Guarda: sin secretos de producción"
+        run: |
+          fallos=0
+          for f in .env .env.local .env.production; do
+            if [ -e "$f" ]; then echo "::error::$f está en el checkout; apunta a producción y debe quedar fuera"; fallos=1; fi
+          done
+          for v in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY SUPABASE_ACCESS_TOKEN WHATSAPP_APP_SECRET; do
+            if [ -n "${!v:-}" ]; then echo "::error::la variable $v está definida en el entorno del job"; fallos=1; fi
+          done
+          if grep -RIlnE '\$\{\{\s*secrets\.' .github/workflows/integracion.yml; then
+            echo "::error::este workflow no debe referenciar ningún secreto"; fallos=1
+          fi
+          [ "$fallos" -eq 0 ] || exit 1
+          echo "sin .env de producción y sin secretos en el entorno"
 
       - name: Dependencias del repo
         run: npm ci
@@ -48,15 +86,53 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
         run: npm ci
 
-      - name: Ensayo compuesto de migraciones
-        run: node scripts/verify-migraciones-compuestas.mjs
-
-      - name: Suites SQL de P1
+      - name: Preflight del entorno (PostgreSQL embebido y navegador)
         run: |
-          node scripts/verify-transferencias-parciales.mjs
-          node scripts/verify-recepcion-compras.mjs
-          node scripts/verify-caja-autorizacion.mjs
-          node scripts/verify-pagos-conciliacion.mjs
+          mkdir -p evidencia
+          bin="$(ls .p04-pgtest/node_modules/@embedded-postgres/linux-*/native/bin/postgres 2>/dev/null | head -1)"
+          if [ -z "$bin" ]; then
+            echo "::error::npm ci no instaló el binario de PostgreSQL embebido para Linux"
+            ls -la .p04-pgtest/node_modules/@embedded-postgres/ || true
+            exit 1
+          fi
+          "$bin" --version
+          id -un
+          if [ "$(id -u)" = "0" ]; then echo "::error::PostgreSQL no arranca como root"; exit 1; fi
+          google-chrome --version
+          node -e "require(require('node:path').resolve('.p1-e2e/node_modules/playwright-core'))" >/dev/null
+          echo "playwright-core, Chrome y PostgreSQL embebido presentes"
+
+      - name: Ensayo compuesto de migraciones
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-migraciones-compuestas.mjs 2>&1 | tee evidencia/ensayo-compuesto.log
+
+      - name: Suite SQL · transferencias parciales (54333)
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-transferencias-parciales.mjs 2>&1 | tee evidencia/suite-transferencias.log
+
+      - name: Suite SQL · recepción de compras (54339)
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-recepcion-compras.mjs 2>&1 | tee evidencia/suite-recepcion.log
+
+      - name: Suite SQL · caja y autorización (54341)
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-caja-autorizacion.mjs 2>&1 | tee evidencia/suite-caja.log
+
+      - name: Suite SQL · conciliación de pagos (54336)
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-pagos-conciliacion.mjs 2>&1 | tee evidencia/suite-pagos.log
 
       - name: E2E de navegador (Chrome del runner)
-        run: node scripts/verify-e2e-ui.mjs
+        if: ${{ !cancelled() }}
+        run: node scripts/verify-e2e-ui.mjs --verbose 2>&1 | tee evidencia/e2e-navegador.log
+
+      - name: Evidencia (logs de suites, ensayo y E2E)
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: integracion-evidencia-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidencia/
+            .p04-pgtest/huella-local-funciones.txt
+          if-no-files-found: error
+          retention-days: 14

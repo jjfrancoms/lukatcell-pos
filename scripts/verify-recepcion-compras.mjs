@@ -124,20 +124,37 @@ function ficheroMigracion(nombre) {
   return fs.readFileSync(ruta, 'utf8')
 }
 
-function funcionDeMigracion(fichero, nombre) {
+// `delim` es el delimitador del cuerpo tal y como lo escribió la migración:
+// las de P0/P1 usan $function$ y las de 2026-08 usan $$. Se pide explícito en
+// vez de adivinarlo, para no recortar un cuerpo por un $$ que apareciera dentro.
+function funcionDeMigracion(fichero, nombre, delim = '$function$') {
   const sql = ficheroMigracion(fichero)
-  const inicio = sql.search(new RegExp(`create or replace function\\s+(public\\.)?${nombre}\\s*\\(`, 'i'))
+  const inicio = sql.search(new RegExp(`create or replace function\\s+(public\\.|private\\.)?${nombre}\\s*\\(`, 'i'))
   if (inicio === -1) throw new Error(`No se encontró ${nombre} en ${fichero}`)
   const resto = sql.slice(inicio)
-  const fin = resto.search(/\$function\$\s*;/)
+  const fin = resto.search(new RegExp(`${delim.replace(/\$/g, '\\$')}\\s*;`))
   if (fin === -1) throw new Error(`No se encontró el fin del cuerpo de ${nombre} en ${fichero}`)
-  return resto.slice(0, fin) + '$function$;'
+  return resto.slice(0, fin) + delim + ';'
 }
 
 const MIGRACION_NUEVA = '_p1_b_recepcion_idempotente.sql'
+const MIGRACION_P3C = '_p3_c_recepcion_b3_b4.sql'
 const SQL_MIGRACION = ficheroMigracion(MIGRACION_NUEVA)
+const SQL_P3C = ficheroMigracion(MIGRACION_P3C)
 const SQL_SINCRONIZAR = funcionDeMigracion('20260909043129_p04_b_ledger_delta_real.sql', 'private\\.sincronizar_stock_serializado')
 const SQL_RECIBIR_VIEJA = funcionDeMigracion('20260906203818_fix_null_puesto_bypass.sql', 'recibir_orden_compra')
+// _p3_c autoriza con la capacidad centralizada y con la sucursal ACTIVA, no con
+// listas de puestos ni con staff.location_id. Se instalan las funciones REALES
+// de sus migraciones, no una imitación: si alguien cambia la definición de la
+// capacidad, esta prueba lo nota.
+const SQL_TIENE_CAPACIDAD = funcionDeMigracion('_p2_h_capacidades.sql', 'private\\.tiene_capacidad')
+const SQL_AUTH_LOCATION = funcionDeMigracion(
+  '20260824162112_multi_location_staff_access_and_active_location.sql', 'private\\.auth_location_id', '$$')
+
+// MUTACIÓN: RECEPCION_OMITIR_P3C=1 corre toda la suite SIN aplicar _p3_c, para
+// demostrar cuántas comprobaciones dependen de verdad de la corrección. Un PASS
+// con la mutación activa se reporta como FAIL: nunca cuenta como verde.
+const OMITIR_P3C = process.env.RECEPCION_OMITIR_P3C === '1'
 
 // ---------------------------------------------------------------------------
 // Esquema PRE-migración: copia fiel de lo que hay hoy en producción.
@@ -169,6 +186,18 @@ create table ${ESQ}.proveedores (id uuid primary key, nombre text, activo boolea
 create table ${ESQ}.staff (
   id uuid primary key, user_id uuid, nombre text, rol varchar not null default 'cajero',
   location_id uuid, activo boolean default true, username varchar, puesto text, active_location_id uuid);
+
+-- Existe en producción desde 20260824162112: sucursal activa y flags por
+-- sucursal. private.tiene_capacidad la consulta, así que sin ella la capacidad
+-- no se podría ejercitar con la función REAL.
+create table ${ESQ}.staff_locations (
+  staff_id uuid not null references ${ESQ}.staff(id) on delete cascade,
+  location_id uuid not null references ${ESQ}.locations(id) on delete cascade,
+  puede_vender boolean not null default true,
+  puede_inventario boolean not null default true,
+  puede_taller boolean not null default true,
+  created_at timestamptz not null default now(),
+  primary key (staff_id, location_id));
 
 create table ${ESQ}.products (
   id uuid primary key default gen_random_uuid(), sku varchar, nombre varchar not null,
@@ -258,8 +287,17 @@ create function ${ESQ}.uid() returns uuid language sql stable as
 create function ${ESQ}.auth_is_admin() returns boolean language sql stable security definer as
   $adm$ select exists (select 1 from ${ESQ}.staff s where s.user_id = ${ESQ}.uid() and s.activo and s.rol='administrador') $adm$;
 
+-- Copia literal de la de producción (20260824162112): sucursal ACTIVA validada
+-- contra staff_locations, con la base como fallback.
 create function ${ESQ}.auth_location_id() returns uuid language sql stable security definer as
-  $lid$ select s.location_id from ${ESQ}.staff s where s.user_id = ${ESQ}.uid() and s.activo limit 1 $lid$;
+  $lid$ select case
+    when s.active_location_id is not null and exists(
+      select 1 from ${ESQ}.staff_locations sl
+      where sl.staff_id = s.id and sl.location_id = s.active_location_id
+    ) then s.active_location_id
+    else s.location_id
+  end
+  from ${ESQ}.staff s where s.user_id = ${ESQ}.uid() and s.activo = true limit 1 $lid$;
 
 -- GRANTS tal y como están en producción --------------------------------------
 -- products: grant de TABLA sin SELECT (awdDxtm) + grants POR COLUMNA. costo
@@ -356,6 +394,23 @@ async function recibir(cli, userId, { orden, ctid, items, obs = null, corrige = 
   })
 }
 
+const CERRAR_SQL = `select ${ESQ}.cerrar_orden_compra_con_faltantes($1::uuid, $2::uuid, $3::text) as res`
+
+async function cerrar(cli2, userId, { orden, ctid, motivo }) {
+  return comoAuth(cli2, userId, async () => {
+    const { rows } = await cli2.query(CERRAR_SQL, [orden, ctid, motivo])
+    return rows[0].res
+  })
+}
+
+// Envoltorio para los casos que deben SALIR BIEN. Sin él, la corrida de
+// mutación (sin _p3_c) reventaría con una excepción no capturada en la primera
+// llamada a algo que todavía no existe, en vez de contar cuántas comprobaciones
+// dependen de la corrección, que es justo lo que queremos medir.
+async function intentar(fn) {
+  try { return { res: await fn(), err: null } } catch (err) { return { res: null, err: String(err.message || err) } }
+}
+
 // Se espera el error: si NO lo hay, es un fallo.
 async function debeFallar(nombre, fn, fragmento) {
   try {
@@ -415,7 +470,18 @@ async function sembrarOrden(lineas, { location = LOC } = {}) {
 }
 
 async function estado(ordenId) {
-  const { rows: [o] } = await admin.query(`select estado from ${ESQ}.ordenes_compra where id=$1`, [ordenId])
+  // to_jsonb por lo mismo que abajo: en la FASE A y en la corrida de mutación
+  // las columnas de cierre todavía no existen y pedirlas por nombre abortaría
+  // con 42703 antes de comprobar nada.
+  const { rows: [oj] } = await admin.query(
+    `select to_jsonb(o) as j from ${ESQ}.ordenes_compra o where o.id=$1`, [ordenId])
+  const o = oj ? oj.j : null
+  const cierre = o ? {
+    cerrada_at: o.cerrada_at ?? null,
+    cerrada_por: o.cerrada_por ?? null,
+    motivo_cierre: o.motivo_cierre ?? null,
+    cierre_client_transaction_id: o.cierre_client_transaction_id ?? null,
+  } : {}
   // Vía to_jsonb para servir a las DOS fases: en la FASE A (esquema de hoy)
   // client_transaction_id, payload_hash y corrige_recepcion_id todavía no
   // existen, y seleccionarlas por nombre abortaba la prueba con 42703 antes de
@@ -442,7 +508,7 @@ async function estado(ordenId) {
   const { rows: ris } = await admin.query(
     `select ri.* from ${ESQ}.recepcion_compra_items ri
      join ${ESQ}.recepciones_compra r on r.id=ri.recepcion_id where r.orden_id=$1 order by ri.orden_item_id, ri.id`, [ordenId])
-  return { estado: o?.estado, recepciones: recs, lineas: its, items_recepcion: ris }
+  return { estado: o?.estado, cierre, recepciones: recs, lineas: its, items_recepcion: ris }
 }
 
 const sinReintento = (res) => {
@@ -495,6 +561,35 @@ try {
   if (servidorLocal) await servidorLocal.stop()
   process.exit(1)
 }
+
+// ===========================================================================
+// FASE B2 — capacidades reales y FICHERO REAL de _p3_c (B3 y B4)
+//
+// A partir de aquí toda la suite corre contra el estado COMPUESTO final, no
+// contra _p1_b aislada: la autorización es la capacidad centralizada de _p2_h y
+// la sucursal es la ACTIVA de _p2_b, igual que en producción tras la OLA 4.
+// ===========================================================================
+await admin.query(aEsquemaPrueba(SQL_TIENE_CAPACIDAD))
+await admin.query(aEsquemaPrueba(SQL_AUTH_LOCATION))
+
+if (!OMITIR_P3C) {
+  try {
+    await admin.query(aEsquemaPrueba(SQL_P3C))
+    comprobar('B1b · _p3_c aplica sobre el esquema ya migrado por _p1_b', true)
+  } catch (err) {
+    comprobar('B1b · _p3_c aplica sobre el esquema ya migrado por _p1_b', false, String(err.message || err))
+    console.error('\n_p3_c no aplica; no tiene sentido seguir.\n', err)
+    await admin.query(`drop schema if exists ${ESQ} cascade`).catch(() => {})
+    await admin.end().catch(() => {})
+    if (servidorLocal) await servidorLocal.stop()
+    process.exit(1)
+  }
+}
+// En la mutación se deja EN PIE la función de _p1_b tal cual. Su autorización por
+// lista de puestos y su sucursal base aceptan y rechazan a exactamente la misma
+// gente que la capacidad y la sucursal activa con las identidades de esta
+// prueba, así que la única diferencia observable entre las dos corridas es B3 y
+// B4: lo que falle es deuda, no ruido de permisos.
 
 {
   // C2 · decisión de coordinación que SUSTITUYE el diseño original de este
@@ -1255,6 +1350,472 @@ async function esperarBloqueo(pid, intentos = 60) {
 }
 
 // ===========================================================================
+// FASE J — B3 · corrección sobre orden terminada y corrección que RESTA
+//
+// Deuda: «Una orden recibida no admite correcciones y una corrección sólo puede
+// sumar» (CURRENT_EXECUTION.md, tabla de defectos de _p1_b).
+// ===========================================================================
+async function sumaCostos(variantId) {
+  const { rows: [r] } = await admin.query(
+    `select coalesce(sum(cantidad),0)::int as n, count(*)::int as filas
+       from ${ESQ}.historial_costos_compra where variant_id=$1`, [variantId])
+  return r
+}
+
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5, costo: 40 }])
+  const r1 = await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 5 }] })
+  let e = await estado(orden)
+  comprobar('J0 · la orden queda recibida antes de corregir', e.estado === 'recibida' && e.lineas[0].stock === 5,
+    `estado=${e.estado} stock=${e.lineas[0].stock}`)
+
+  // Antes: 'Orden no recepcionable' sin matices. Ahora el rechazo se mantiene
+  // para una recepción NUEVA y explica la salida que existe.
+  await debeFallar('J1 · una orden recibida sigue rechazando una recepción NUEVA',
+    () => recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 1 }] }),
+    'no recepcionable')
+
+  const ctidC = uuid()
+  const correccion = {
+    orden, ctid: ctidC, corrige: r1.recepcion_id,
+    items: [{ orden_item_id: items[0].id, cantidad_revertida: 2, observacion: 'Dos nunca llegaron; el conteo del lunes estaba mal' }],
+  }
+  const { res: c1, err: errC1 } = await intentar(() => recibir(cli, ADMIN_UUID, correccion))
+  comprobar('J2 · una orden RECIBIDA admite una corrección (B3, primera mitad)', !!c1 && c1.reintento === false, errC1 || 'sin resultado')
+
+  e = await estado(orden)
+  comprobar('J3 · la corrección RESTA: cantidad_recibida baja y la orden vuelve a parcial (B3, segunda mitad)',
+    e.estado === 'parcial' && e.lineas[0].cantidad_recibida === 3,
+    `estado=${e.estado} recibida=${e.lineas[0].cantidad_recibida}`)
+  comprobar('J4 · el stock baja y el movimiento lleva el delta REAL negativo, no el declarado',
+    e.lineas[0].stock === 3 && e.lineas[0].movs_n === 2 && e.lineas[0].movs_suma === 3,
+    `stock=${e.lineas[0].stock} movs=${e.lineas[0].movs_n}/${e.lineas[0].movs_suma}`)
+  const cost = await sumaCostos(items[0].variant_id)
+  comprobar('J5 · el historial de costo sigue append-only: fila NUEVA negativa, la positiva intacta',
+    cost.filas === 2 && cost.n === 3, `filas=${cost.filas} suma=${cost.n}`)
+  comprobar('J6 · la recepción corregida no se tocó y la corrección la apunta',
+    e.recepciones.length === 2 && e.recepciones.some((r) => r.id === r1.recepcion_id)
+      && !!c1 && c1.corrige_recepcion_id === r1.recepcion_id,
+    `recepciones=${e.recepciones.length}`)
+  comprobar('J7 · el resultado devuelve lo revertido (si no, una corrección que resta parecería no hacer nada)',
+    !!c1 && c1.lineas[0].cantidad_revertida === 2 && c1.revertidas === 2,
+    JSON.stringify(c1 && c1.lineas))
+
+  // Reintento de la corrección: no puede restar dos veces.
+  const { res: c1b } = await intentar(() => recibir(cli, ADMIN_UUID, correccion))
+  e = await estado(orden)
+  comprobar('J8 · reintentar la corrección NO resta dos veces',
+    !!c1b && c1b.reintento === true && c1b.recepcion_id === (c1 && c1.recepcion_id)
+      && e.lineas[0].cantidad_recibida === 3 && e.lineas[0].stock === 3 && e.lineas[0].movs_n === 2,
+    `recibida=${e.lineas[0].cantidad_recibida} stock=${e.lineas[0].stock} movs=${e.lineas[0].movs_n}`)
+
+  // B1 aplicado a lo nuevo: la reversión ENTRA en la huella.
+  await debeFallar('J9 · misma clave con otra cantidad_revertida se RECHAZA (la reversión entra en la huella)',
+    () => recibir(cli, ADMIN_UUID, {
+      ...correccion,
+      items: [{ orden_item_id: items[0].id, cantidad_revertida: 1, observacion: 'Dos nunca llegaron; el conteo del lunes estaba mal' }],
+    }), 'contenido distinto')
+}
+
+{
+  // El techo de la reversión es lo que aportó la recepción corregida, no lo que
+  // haya recibido la línea en total.
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 10 }])
+  const r1 = await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 4 }] })
+  await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 6 }] })
+
+  await debeFallar('J10 · una corrección no puede revertir unidades que trajo OTRA recepción',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: items[0].id, cantidad_revertida: 5 }],
+    }), 'revertibles')
+
+  const { err: e2 } = await intentar(() => recibir(cli, ADMIN_UUID, {
+    orden, ctid: uuid(), corrige: r1.recepcion_id,
+    items: [{ orden_item_id: items[0].id, cantidad_revertida: 3 }],
+  }))
+  comprobar('J11 · revertir dentro del techo sí se acepta', e2 === null, e2 || '')
+  await debeFallar('J12 · dos correcciones no revierten dos veces la misma unidad',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: items[0].id, cantidad_revertida: 2 }],
+    }), 'revertibles')
+  const e = await estado(orden)
+  comprobar('J13 · tras la reversión aceptada las cuentas cuadran',
+    e.lineas[0].cantidad_recibida === 7 && e.lineas[0].stock === 7 && e.lineas[0].movs_suma === 7,
+    `recibida=${e.lineas[0].cantidad_recibida} stock=${e.lineas[0].stock} movs=${e.lineas[0].movs_suma}`)
+}
+
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5 }])
+  const r1 = await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 3 }] })
+  await debeFallar('J14 · revertir sin declararlo corrección se rechaza',
+    () => recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad_revertida: 1 }] }),
+    'sólo cabe en una corrección')
+
+  // Lo revertido ya salió de la sucursal (venta, traslado): no hay stock que
+  // devolver y la corrección entera se rechaza en vez de dejar stock negativo.
+  await admin.query(`update ${ESQ}.inventory set cantidad=1 where variant_id=$1`, [items[0].variant_id])
+  await debeFallar('J15 · no se revierte lo que ya salió del stock: la corrección se rechaza entera',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: items[0].id, cantidad_revertida: 3 }],
+    }), 'stock en la sucursal es menor')
+  const e = await estado(orden)
+  comprobar('J15b · el rechazo no dejó recepción ni tocó la línea',
+    e.recepciones.length === 1 && e.lineas[0].cantidad_recibida === 3 && e.lineas[0].stock === 1,
+    `recepciones=${e.recepciones.length} recibida=${e.lineas[0].cantidad_recibida} stock=${e.lineas[0].stock}`)
+}
+
+{
+  // Una recepción con sobrante aceptado registra más unidades BUENAS de las que
+  // avanzó la orden. Revertirlas todas dejaría cantidad_recibida en negativo:
+  // se rechaza y se admite sólo lo que de verdad avanzó.
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 2 }])
+  const r1 = await recibir(cli, ADMIN_UUID, {
+    orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 5, acepta_sobrante: true }],
+  })
+  await debeFallar('J16 · no se puede revertir por debajo de 0 lo recibido (el sobrante no avanzó la orden)',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: items[0].id, cantidad_revertida: 5 }],
+    }), 'sólo constan 2 recibidas')
+  const { err } = await intentar(() => recibir(cli, ADMIN_UUID, {
+    orden, ctid: uuid(), corrige: r1.recepcion_id,
+    items: [{ orden_item_id: items[0].id, cantidad_revertida: 2 }],
+  }))
+  const e = await estado(orden)
+  comprobar('J17 · revertir lo que sí avanzó la orden se acepta y el CHECK cantidad_recibida<=pedida aguanta',
+    err === null && e.lineas[0].cantidad_recibida === 0 && e.lineas[0].stock === 3 && e.estado === 'parcial',
+    err || `recibida=${e.lineas[0].cantidad_recibida} stock=${e.lineas[0].stock} estado=${e.estado}`)
+}
+
+{
+  // Compatibilidad de la huella: un envío SIN reversión tiene que producir el
+  // mismo md5 que producía antes de _p3_c. Si no, todo reintento que cruzara el
+  // despliegue se rechazaría por "contenido distinto".
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5 }])
+  const payload = [{ orden_item_id: items[0].id, cantidad: 2 }]
+  await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: payload })
+  const { rows: [h] } = await admin.query(
+    `select r.payload_hash,
+            md5(jsonb_build_object(
+              'lineas',               ${ESQ}.hash_recepcion($1::uuid, $2::jsonb),
+              'observacion',          null,
+              'corrige_recepcion_id', null)::text) as huella_vieja
+       from ${ESQ}.recepciones_compra r where r.orden_id = $1`, [orden, JSON.stringify(payload)])
+  comprobar('J18 · sin reversión la huella es EXACTAMENTE la de antes (un reintento a caballo del despliegue sigue siendo reintento)',
+    !!h && h.payload_hash === h.huella_vieja, `${h && h.payload_hash} vs ${h && h.huella_vieja}`)
+}
+
+// ===========================================================================
+// FASE K — B3 con IMEI: la reversión dice QUÉ unidad sale
+// ===========================================================================
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 4, serial: true }])
+  const it = items[0].id
+  const r1 = await recibir(cli, ADMIN_UUID, {
+    orden, ctid: uuid(),
+    items: [{ orden_item_id: it, cantidad: 3, seriales: [{ serial_number: 'K-1' }, { serial_number: 'K-2' }, { serial_number: 'K-3' }] }],
+  })
+  const otra = await sembrarOrden([{ qty: 2, serial: true }])
+  const r2 = await recibir(cli, ADMIN_UUID, {
+    orden: otra.orden, ctid: uuid(),
+    items: [{ orden_item_id: otra.items[0].id, cantidad: 1, seriales: [{ serial_number: 'K-AJENO' }] }],
+  })
+
+  await debeFallar('K1 · revertir sin decir qué IMEI se rechaza',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: it, cantidad_revertida: 1 }],
+    }), 'tienen que coincidir')
+  await debeFallar('K2 · declarar más IMEI a revertir que unidades revertidas se rechaza',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: it, cantidad_revertida: 1, seriales_revertidos: ['K-1', 'K-2'] }],
+    }), 'tienen que coincidir')
+  await debeFallar('K3 · IMEI repetido dentro de la reversión se rechaza',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: it, cantidad_revertida: 2, seriales_revertidos: ['K-1', 'K-1'] }],
+    }), 'repetidos en la reversión')
+  await debeFallar('K4 · no se puede revertir un IMEI que trajo OTRA recepción',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: it, cantidad_revertida: 1, seriales_revertidos: ['K-AJENO'] }],
+    }), 'no lo trajo la recepción que se corrige')
+
+  const ctidK = uuid()
+  const correccion = {
+    orden, ctid: ctidK, corrige: r1.recepcion_id,
+    items: [{ orden_item_id: it, cantidad_revertida: 1, seriales_revertidos: ['K-2'] }],
+  }
+  const { res: k, err: errK } = await intentar(() => recibir(cli, ADMIN_UUID, correccion))
+  let e = await estado(orden)
+  const { rows: [s2] } = await admin.query(`select estado from ${ESQ}.product_serials where serial_number='K-2'`)
+  comprobar('K5 · la reversión serializada da de BAJA el IMEI concreto, no lo borra',
+    !!k && s2 && s2.estado === 'baja', errK || `estado=${s2 && s2.estado}`)
+  comprobar('K6 · el stock sigue DERIVADO de product_serials y el movimiento es el delta real (-1)',
+    e.lineas[0].stock === e.lineas[0].seriales_disp && e.lineas[0].stock === 2
+      && e.lineas[0].movs_n === 2 && e.lineas[0].movs_suma === 2,
+    `stock=${e.lineas[0].stock} disp=${e.lineas[0].seriales_disp} movs=${e.lineas[0].movs_n}/${e.lineas[0].movs_suma}`)
+  comprobar('K7 · cantidad_recibida baja con la reversión serializada',
+    e.lineas[0].cantidad_recibida === 2 && e.estado === 'parcial',
+    `recibida=${e.lineas[0].cantidad_recibida} estado=${e.estado}`)
+
+  await debeFallar('K8 · un IMEI ya revertido no se puede revertir otra vez',
+    () => recibir(cli, ADMIN_UUID, {
+      orden, ctid: uuid(), corrige: r1.recepcion_id,
+      items: [{ orden_item_id: it, cantidad_revertida: 1, seriales_revertidos: ['K-2'] }],
+    }), 'ya no está disponible')
+
+  const { res: kb } = await intentar(() => recibir(cli, ADMIN_UUID, correccion))
+  e = await estado(orden)
+  comprobar('K9 · reintentar la corrección serializada no da de baja nada más ni mueve stock otra vez',
+    !!kb && kb.reintento === true && e.lineas[0].stock === 2 && e.lineas[0].movs_n === 2,
+    `stock=${e.lineas[0].stock} movs=${e.lineas[0].movs_n}`)
+
+  await debeFallar('K10 · misma clave con OTRO IMEI revertido se RECHAZA (la huella cubre seriales_revertidos)',
+    () => recibir(cli, ADMIN_UUID, {
+      ...correccion,
+      items: [{ orden_item_id: it, cantidad_revertida: 1, seriales_revertidos: ['K-3'] }],
+    }), 'contenido distinto')
+  comprobar('K11 · la corrección deja registrado en el documento QUÉ IMEI revirtió',
+    !!k && JSON.stringify(k.lineas[0].seriales_revertidos) === JSON.stringify(['K-2']),
+    JSON.stringify(k && k.lineas[0] && k.lineas[0].seriales_revertidos))
+  // La recepción ajena no se tocó.
+  const eo = await estado(otra.orden)
+  comprobar('K12 · la recepción de la otra orden quedó intacta',
+    eo.lineas[0].stock === 1 && eo.recepciones.length === 1 && r2.reintento === false)
+}
+
+// ===========================================================================
+// FASE L — B4 · cierre explícito con faltantes
+//
+// Deuda: «Lo faltante deja la orden en `parcial` para siempre; no hay cierre
+// con faltantes (misma clase que T3)».
+// ===========================================================================
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5 }])
+  await recibir(cli, ADMIN_UUID, {
+    orden, ctid: uuid(),
+    items: [{ orden_item_id: items[0].id, cantidad: 3, cantidad_faltante: 2 }],
+  })
+  let e = await estado(orden)
+  comprobar('L0 · con faltante la orden queda en parcial (el punto de partida del defecto)',
+    e.estado === 'parcial', `estado=${e.estado}`)
+
+  await debeFallar('L1 · cerrar sin motivo se rechaza: un cierre sin razón no es auditable',
+    () => cerrar(cli, ADMIN_UUID, { orden, ctid: uuid(), motivo: '   ' }), 'motivo')
+
+  const ctid = uuid()
+  const MOTIVO = 'El proveedor confirmó por escrito que no repone las 2 unidades'
+  const { res: z1, err: errZ } = await intentar(() => cerrar(cli, ADMIN_UUID, { orden, ctid, motivo: MOTIVO }))
+  e = await estado(orden)
+  comprobar('L2 · la orden con faltante definitivo SE PUEDE cerrar (B4)',
+    !!z1 && z1.reintento === false && e.estado === 'cerrada', errZ || `estado=${e.estado}`)
+  comprobar('L3 · el cierre registra quién, cuándo y por qué',
+    e.cierre.cerrada_por === ADMIN_UUID && !!e.cierre.cerrada_at && e.cierre.motivo_cierre === MOTIVO,
+    JSON.stringify(e.cierre))
+  comprobar('L4 · el cierre congela el faltante exacto',
+    !!z1 && Number(z1.unidades_faltantes) === 2 && (z1.lineas_con_faltante || []).length === 1
+      && Number(z1.lineas_con_faltante[0].faltante) === 2,
+    JSON.stringify(z1 && z1.unidades_faltantes))
+  comprobar('L5 · cerrar no toca inventario ni cantidad_recibida',
+    e.lineas[0].stock === 3 && e.lineas[0].cantidad_recibida === 3 && e.lineas[0].movs_n === 1,
+    `stock=${e.lineas[0].stock} recibida=${e.lineas[0].cantidad_recibida} movs=${e.lineas[0].movs_n}`)
+
+  const { res: z2 } = await intentar(() => cerrar(cli, ADMIN_UUID, { orden, ctid, motivo: MOTIVO }))
+  comprobar('L6 · doble POST del cierre con la misma clave: un solo cierre y el MISMO resultado',
+    !!z2 && z2.reintento === true && sinReintento(z1) === sinReintento(z2),
+    `${sinReintento(z1)} vs ${sinReintento(z2)}`)
+
+  await debeFallar('L7 · misma clave con OTRO motivo se RECHAZA (no se replica una decisión distinta)',
+    () => cerrar(cli, ADMIN_UUID, { orden, ctid, motivo: 'Me equivoqué, en realidad sí lo reponen' }), 'motivo distinto')
+
+  const OTRA = 'dddddddd-dddd-4ddd-8ddd-dddddddddd31'
+  await admin.query(
+    `insert into ${ESQ}.staff(id,user_id,nombre,rol,location_id,activo,username,puesto)
+     values ($1,$1,'Otra encargada','administrador',$2,true,'otra-encargada','jefa')`, [OTRA, LOC])
+  await debeFallar('L8 · la misma clave presentada por otra persona se RECHAZA',
+    () => cerrar(cli, OTRA, { orden, ctid, motivo: MOTIVO }), 'otra persona')
+  await admin.query(`delete from ${ESQ}.staff where id=$1`, [OTRA])
+
+  await debeFallar('L9 · cerrar dos veces con claves distintas se rechaza: el cierre es definitivo',
+    () => cerrar(cli, ADMIN_UUID, { orden, ctid: uuid(), motivo: 'Otro intento' }), 'definitivo')
+
+  // B3 y B4 juntos: la orden cerrada no admite una recepción nueva pero SÍ una
+  // corrección, y el cierre no se deshace por la puerta de atrás.
+  await debeFallar('L10 · una orden cerrada no admite una recepción nueva',
+    () => recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 1 }] }),
+    'no recepcionable')
+  const rec1 = e.recepciones[0].id
+  const { err: errCorr } = await intentar(() => recibir(cli, ADMIN_UUID, {
+    orden, ctid: uuid(), corrige: rec1,
+    items: [{ orden_item_id: items[0].id, cantidad_revertida: 1, observacion: 'Una de las tres venía vacía' }],
+  }))
+  e = await estado(orden)
+  comprobar('L11 · una orden cerrada SÍ admite una corrección, y el cierre no se deshace solo',
+    errCorr === null && e.estado === 'cerrada' && e.lineas[0].cantidad_recibida === 2 && e.lineas[0].stock === 2,
+    errCorr || `estado=${e.estado} recibida=${e.lineas[0].cantidad_recibida} stock=${e.lineas[0].stock}`)
+
+  // El cierre es inmutable incluso para el dueño del esquema (equivalente a
+  // `postgres`): RLS no protege de una SECURITY DEFINER, un trigger sí. Y la
+  // policy oc_write_admin da UPDATE directo a un administrador.
+  await debeFallar('L12 · el cierre no se puede reescribir, ni siquiera como dueño',
+    () => admin.query(`update ${ESQ}.ordenes_compra set motivo_cierre='otra cosa' where id=$1`, [orden]),
+    'definitivo')
+  await debeFallar('L13 · el cierre no se puede anular borrando su marca',
+    () => admin.query(`update ${ESQ}.ordenes_compra set cerrada_at=null where id=$1`, [orden]),
+    'definitivo')
+  await debeFallar('L14 · una orden cerrada no se puede reabrir a parcial',
+    () => admin.query(`update ${ESQ}.ordenes_compra set estado='parcial' where id=$1`, [orden]),
+    'ordenes_compra_cierre_coherente')
+}
+
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 4 }])
+  await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 4 }] })
+  await debeFallar('L15 · una orden sin faltantes no se cierra con faltantes',
+    () => cerrar(cli, ADMIN_UUID, { orden, ctid: uuid(), motivo: 'Cierre injustificado' }),
+    'parcialmente recibida')
+}
+
+{
+  await limpiar()
+  const o1 = await sembrarOrden([{ qty: 5 }])
+  const o2 = await sembrarOrden([{ qty: 5 }])
+  for (const o of [o1, o2]) {
+    await recibir(cli, ADMIN_UUID, { orden: o.orden, ctid: uuid(), items: [{ orden_item_id: o.items[0].id, cantidad: 2 }] })
+  }
+  const ctid = uuid()
+  await intentar(() => cerrar(cli, ADMIN_UUID, { orden: o1.orden, ctid, motivo: 'No repone' }))
+  await debeFallar('L16 · la misma clave de cierre contra otra orden se rechaza',
+    () => cerrar(cli, ADMIN_UUID, { orden: o2.orden, ctid, motivo: 'No repone' }), 'ya se usó para cerrar la orden')
+  const e2 = await estado(o2.orden)
+  comprobar('L16b · la otra orden no se cerró', e2.estado === 'parcial' && e2.cierre.cerrada_at === null,
+    `estado=${e2.estado}`)
+}
+
+{
+  // Permisos del cierre, con `set local role authenticated` como todo lo demás.
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5 }])
+  await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 2 }] })
+  await debeFallar('L17 · un cajero no puede cerrar una orden con faltantes',
+    () => cerrar(cli, CAJERO_UUID, { orden, ctid: uuid(), motivo: 'Me aburrí de esperar' }), 'Sin permiso')
+
+  const anonCli = new pg.Client({ connectionString: URL_PG }); await anonCli.connect()
+  await debeFallar('L18 · `anon` no puede ejecutar cerrar_orden_compra_con_faltantes', async () => {
+    await anonCli.query('begin')
+    await anonCli.query('set local role anon')
+    try { await anonCli.query(CERRAR_SQL, [orden, uuid(), 'x']) }
+    finally { await anonCli.query('rollback').catch(() => {}) }
+  }, 'permission denied')
+  await anonCli.end()
+
+  // `authenticated` tiene que VER las columnas nuevas (P0.4 / R8).
+  let ok = true, detalle = ''
+  try {
+    await comoAuth(cli, ADMIN_UUID, async () => {
+      await cli.query(`select cantidad_revertida, seriales_revertidos from ${ESQ}.recepcion_compra_items`)
+      await cli.query(`select cerrada_at, cerrada_por, motivo_cierre, cierre_client_transaction_id from ${ESQ}.ordenes_compra`)
+    })
+  } catch (err) { ok = false; detalle = String(err.message) }
+  comprobar('L19 · `authenticated` VE las columnas nuevas de reversión y de cierre', ok, detalle)
+}
+
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5 }], { location: LOC2 })
+  await admin.query(
+    `insert into ${ESQ}.ordenes_compra(id, numero, proveedor_id, location_id, estado, creado_por, total)
+     values ($1,$2,$3,$4,'enviada',$5,0)`, [uuid(), 9000, PROV, LOC2, ADMIN_UUID]).catch(() => {})
+  await admin.query(`update ${ESQ}.ordenes_compra set estado='parcial' where id=$1`, [orden])
+  await admin.query(`update ${ESQ}.orden_compra_items set cantidad_recibida=1 where id=$1`, [items[0].id])
+  await debeFallar('L20 · no se cierra una orden de otra sucursal (fallo cerrado)',
+    () => cerrar(cli, ADMIN_UUID, { orden, ctid: uuid(), motivo: 'Ajena' }), 'otra sucursal')
+
+  const SIN_SUC = 'dddddddd-dddd-4ddd-8ddd-dddddddddd41'
+  await admin.query(
+    `insert into ${ESQ}.staff(id,user_id,nombre,rol,location_id,activo,username,puesto)
+     values ($1,$1,'Admin sin sucursal 2','administrador',null,true,'admin-sin-suc-2','jefa')`, [SIN_SUC])
+  await debeFallar('L21 · un administrador SIN sucursal no cierra ninguna orden (fallo CERRADO)',
+    () => cerrar(cli, SIN_SUC, { orden, ctid: uuid(), motivo: 'Sin sucursal' }), 'otra sucursal')
+  await admin.query(`delete from ${ESQ}.staff where id=$1`, [SIN_SUC])
+}
+
+// ===========================================================================
+// FASE M — concurrencia REAL del cierre
+// ===========================================================================
+{
+  await limpiar()
+  const { orden, items } = await sembrarOrden([{ qty: 5 }])
+  await recibir(cli, ADMIN_UUID, { orden, ctid: uuid(), items: [{ orden_item_id: items[0].id, cantidad: 2 }] })
+  const ctid = uuid()
+  const MOTIVO = 'Dos sesiones cierran a la vez'
+
+  const A = new pg.Client({ connectionString: URL_PG }); await A.connect()
+  const B = new pg.Client({ connectionString: URL_PG }); await B.connect()
+  const { rows: [{ pid }] } = await B.query('select pg_backend_pid() as pid')
+  for (const c of [A, B]) {
+    await c.query('begin')
+    await c.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: ADMIN_UUID, role: 'authenticated' })])
+    await c.query('set local role authenticated')
+  }
+  const { res: rA, err: eA } = await intentar(async () => (await A.query(CERRAR_SQL, [orden, ctid, MOTIVO])).rows[0].res)
+  const enCurso = B.query(CERRAR_SQL, [orden, ctid, MOTIVO]).then((r) => r.rows[0].res, (err) => ({ __err: String(err.message) }))
+  const bloqueo = await esperarBloqueo(pid)
+  await A.query('commit').catch(() => {})
+  const rB = await enCurso
+  await B.query('commit').catch(() => {})
+  await A.end(); await B.end()
+
+  const e = await estado(orden)
+  comprobar('M1 · hubo bloqueo REAL entre los dos cierres simultáneos', bloqueo)
+  comprobar('M2 · dos cierres simultáneos con la misma clave: uno aplica y el otro REPRODUCE',
+    !!rA && rA.reintento === false && rB && !rB.__err && rB.reintento === true,
+    eA || (rB && rB.__err) || `A=${rA && rA.reintento} B=${rB && rB.reintento}`)
+  comprobar('M3 · el resultado de los dos es idéntico salvo la marca de reintento',
+    !!rA && rB && !rB.__err && sinReintento(rA) === sinReintento(rB))
+  comprobar('M4 · la orden quedó cerrada UNA vez, con una sola clave',
+    e.estado === 'cerrada' && e.cierre.cierre_client_transaction_id === ctid,
+    `estado=${e.estado} clave=${e.cierre.cierre_client_transaction_id}`)
+}
+
+{
+  // El índice único es la garantía DURA, al margen de la lógica de la función.
+  await limpiar()
+  const o1 = await sembrarOrden([{ qty: 5 }])
+  const o2 = await sembrarOrden([{ qty: 5 }])
+  const ctid = uuid()
+  const { err } = await intentar(async () => {
+    await admin.query(`update ${ESQ}.ordenes_compra set estado='parcial', cerrada_por=$2, cerrada_at=now(),
+                       motivo_cierre='a', cierre_client_transaction_id=$3, cierre_payload_hash='h' where id=$1`,
+      [o1.orden, ADMIN_UUID, ctid])
+  })
+  comprobar('M5 · no se puede marcar cierre sin poner el estado: el CHECK de coherencia lo impide',
+    err !== null && /cierre_coherente/.test(err), err || 'no falló')
+  await admin.query(`update ${ESQ}.ordenes_compra set estado='cerrada', cerrada_por=$2, cerrada_at=now(),
+                     motivo_cierre='a', cierre_client_transaction_id=$3, cierre_payload_hash='h' where id=$1`,
+    [o1.orden, ADMIN_UUID, ctid]).catch(() => {})
+  const { err: err2 } = await intentar(() => admin.query(
+    `update ${ESQ}.ordenes_compra set estado='cerrada', cerrada_por=$2, cerrada_at=now(),
+     motivo_cierre='b', cierre_client_transaction_id=$3, cierre_payload_hash='h' where id=$1`,
+    [o2.orden, ADMIN_UUID, ctid]))
+  comprobar('M6 · el índice único impide reutilizar la clave de cierre en otra orden',
+    err2 !== null && /duplicate key|unique/i.test(err2), err2 || 'no falló')
+}
+
+// ===========================================================================
 // FASE I — comprobaciones estáticas sobre el fichero de migración
 // ===========================================================================
 {
@@ -1281,20 +1842,56 @@ async function esperarBloqueo(pid, intentos = 60) {
     `longitud de la rama analizada: ${ramaSerial.length}`)
 }
 
+{
+  // Estáticas sobre _p3_c: lo que no se puede comprobar ejecutando porque es
+  // una ausencia (no redefinir, no dropear, no conceder).
+  const m = SQL_P3C
+  comprobar('I8 · _p3_c NO redefine private.hash_recepcion (es de otra migración)',
+    !/create\s+or\s+replace\s+function\s+private\.hash_recepcion\s*\(/i.test(m))
+  comprobar('I9 · _p3_c NO dropea ninguna versión de recibir_orden_compra: la identidad no cambia',
+    !/drop\s+function[^;]*recibir_orden_compra/i.test(m)
+      && !/proname\s*=\s*'recibir_orden_compra'[^;]*drop/i.test(m))
+  comprobar('I10 · la firma exacta se conserva en el CREATE OR REPLACE',
+    /create\s+or\s+replace\s+function\s+public\.recibir_orden_compra\s*\(\s*\n?\s*p_orden_id\s+uuid,\s*\n?\s*p_client_transaction_id\s+uuid,\s*\n?\s*p_items\s+jsonb,\s*\n?\s*p_observacion\s+text\s+default\s+null,\s*\n?\s*p_corrige_recepcion_id\s+uuid\s+default\s+null\s*\)/i.test(m))
+  comprobar('I11 · las dos RPC son SECURITY DEFINER con search_path fijado',
+    (m.match(/security definer\s*\nset search_path to 'public', 'private'/gi) || []).length >= 2)
+  comprobar('I12 · a `anon` no se le concede EXECUTE en ninguna función nueva',
+    !/grant\s+execute[^;]*\banon\b/i.test(m) && /revoke all on function public\.cerrar_orden_compra_con_faltantes[^;]*from anon/i.test(m))
+  comprobar('I13 · la capacidad y el fallo cerrado de sucursal están en las DOS RPC',
+    (m.match(/private\.tiene_capacidad\('operar_inventario'\)/g) || []).length >= 2
+      && (m.match(/private\.auth_location_id\(\) is null/g) || []).length >= 2)
+  comprobar('I14 · la clave de idempotencia es obligatoria también en el cierre',
+    /if p_client_transaction_id is null then[\s\S]{0,400}El cierre requiere client_transaction_id/i.test(m))
+  comprobar('I15 · la reversión serializada no escribe inventory ni movimientos a mano',
+    !/insert\s+into\s+public\.inventory_movements[\s\S]{0,200}sincronizar_stock_serializado/i.test(m)
+      && /sincronizar_stock_serializado\s*\(/.test(m))
+  comprobar('I16 · no se conceden privilegios sobre products.costo',
+    !/grant\s+select\s*\([^)]*\bcosto\b/i.test(m))
+}
+
 // ---------------------------------------------------------------------------
 await cli.end().catch(() => {})
 await admin.query(`drop schema if exists ${ESQ} cascade`).catch(() => {})
 await admin.end().catch(() => {})
 if (servidorLocal) await servidorLocal.stop()
 
-console.log('RECEPCIÓN DE COMPRAS — FASE 14')
-console.log(`SQL real de ${MIGRACION_NUEVA}, PostgreSQL real, rol authenticated\n`)
+console.log('RECEPCIÓN DE COMPRAS — FASE 14 (+ B3 y B4)')
+console.log(`SQL real de ${MIGRACION_NUEVA} y ${MIGRACION_P3C}, PostgreSQL real, rol authenticated\n`)
+if (OMITIR_P3C) console.log(`*** MUTACIÓN: sin ${MIGRACION_P3C} — se espera FAIL ***\n`)
 for (const p of pasos) console.log(`  ${p.ok ? 'ok  ' : 'FAIL'}  ${p.nombre}`)
 console.log(`\n  ${pasos.filter((p) => p.ok).length}/${pasos.length} comprobaciones`)
+
+if (OMITIR_P3C) {
+  console.log(`\n  MUTACIÓN: ${fallos.length} comprobaciones dependen de ${MIGRACION_P3C}.`)
+  for (const f of fallos) console.log(`  [FAIL] ${f}`)
+  console.log('\nUn resultado con la mutación activa NUNCA cuenta como PASS.')
+  process.exit(1)
+}
 
 if (fallos.length) {
   console.log('\nFallos:')
   for (const f of fallos) console.log(`  [FAIL] ${f}`)
   process.exit(1)
 }
-console.log('\nFASE 14: la versión vieja duplica, la nueva es idempotente bajo reintento y concurrencia. PASS')
+console.log('\nFASE 14: la versión vieja duplica, la nueva es idempotente bajo reintento y concurrencia;')
+console.log('una orden terminada admite correcciones que restan y el faltante definitivo se cierra. PASS')

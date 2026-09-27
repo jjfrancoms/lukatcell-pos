@@ -1,8 +1,14 @@
 # CURRENT_EXECUTION — punto de reanudación
 
-> Este archivo manda sobre `STATE.md` y `BACKLOG.md`, que describen el 24 de agosto
-> y se contradicen con P0.1–P0.4. Si hay conflicto, gana lo que diga aquí, y por
-> encima de todo `main` + producción.
+> Si hay conflicto entre los tres documentos gana lo que diga aquí, y por encima de todo
+> `main` + producción. (Corregido el 2026-09-17: la advertencia anterior decía que `STATE.md`
+> y `BACKLOG.md` «describen el 24 de agosto»; dejó de ser cierto el 2026-09-13, cuando ambos
+> se reconstruyeron desde código y catálogo real — ver su encabezado.)
+
+> **Zona horaria.** Producción corre en `TimeZone=UTC`; la fecha **comercial** del negocio es la de
+> `America/Lima` (UTC−5, sin horario de verano). Donde este documento da un instante en UTC va
+> también su fecha de Lima. Conversión reproducible:
+> `node -e "console.log(new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Lima',dateStyle:'short',timeStyle:'short'}).format(new Date('2026-09-07T00:52:00Z')))"` → `2026-09-06 19:52`.
 
 ## Estado actual (2026-09-13, release OLA 1–4)
 
@@ -705,7 +711,8 @@ accion}`:
 `requiere_autorizacion`; `cerrar_dia` bloquea por P0 de cierre (mensaje de cajas conservado) y guarda
 `checks` en el snapshot; `aprobar_cierre_diario` conserva bloqueos/mensajes/autorización y registra
 `checks` en `reporte_final`. UI `CierreDiario.tsx`: lista ordenada por nivel y botón deshabilitado si
-el servidor bloquea. **Impacto operativo al desplegar:** la caja abierta desde el 2026-09-07 bloqueará
+el servidor bloquea. **Impacto operativo al desplegar:** la caja abierta desde el 2026-09-06 (19:52 Lima
+= 2026-09-07 00:52 UTC) bloqueará
 el próximo cierre hasta que se cierre por el flujo normal (comportamiento correcto, a comunicar al
 dueño). Módulo de negocio `cierre_diario.mjs`.
 
@@ -982,7 +989,8 @@ datos locales ni scratch.
   `3662a3f9…`, RLS 66/`ee832627…`, privilegios de columna 5169/`a487b9e7…`): producción no cambió desde
   la auditoría en la que se basa toda la validación local.
 - anon SECURITY DEFINER = **0** · tablas públicas sin RLS = **0**.
-- Datos clasificados sin cambios: 5 reservas IMEI vencidas · 1 caja abierta (2026-09-07 00:52 UTC) ·
+- Datos clasificados sin cambios: 5 reservas IMEI vencidas · 1 caja abierta (2026-09-07 00:52 UTC =
+  **2026-09-06 19:52 Lima**) ·
   2 conciliaciones pendientes · 5 ventas reales.
 
 **Candidato local final (2026-09-13 17:11) — PASS completo, sin cambios posteriores:** gate 0/0/0 (393
@@ -991,7 +999,7 @@ transferencias PASS, recepción PASS, caja PASS, pagos 41/41 · E2E Caja 6/6, Tr
 Offline 3/3, fugas 0.
 
 **Decisión del dueño (2026-09-13):** *"Yes, release now"* — aplicar las 15 migraciones y publicar,
-aceptando los efectos descritos (caja del 2026-09-07 bloquea el próximo cierre, edición CRM sólo admin,
+aceptando los efectos descritos (la caja del **2026-09-06** en hora de Lima bloquea el próximo cierre, edición CRM sólo admin,
 flags por sucursal aplicados). **WhatsApp: "Hold it"** — el código del webhook con firma se versiona,
 pero la Edge Function `agente-whatsapp` **NO se despliega** en este release (queda aceptando peticiones
 sin firma hasta que el dueño cargue `WHATSAPP_APP_SECRET` y se despliegue).
@@ -1111,7 +1119,7 @@ de sólo lectura.
   entrantes (fallo cerrado deliberado). Requiere cargar el secreto antes o aceptar la pausa.
 - Habilitar una segunda sucursal: permitido sólo después de `_p2_b` en producción.
 
-**Efectos visibles tras el release que hay que comunicar:** la caja abierta desde 2026-09-07 bloqueará
+**Efectos visibles tras el release que hay que comunicar:** la caja abierta desde el **2026-09-06** (hora de Lima) bloqueará
 el próximo cierre diario hasta cerrarla por el flujo normal; las 2 conciliaciones pendientes aparecerán
 como warning del cierre y como incidencias al detectar.
 
@@ -1125,8 +1133,8 @@ reglas en 8 sitios (`App.tsx` InventoryOpsRoute, `Layout.tsx`, `Compras.tsx`, `C
 
 | Objeto | Hechos | Clasificación | Acción |
 |---|---|---|---|
-| 5 reservas IMEI vencidas | productos `is_test`, serial en `baja`, staff QA inactivo, creadas 2026-09-07 00:31–00:52 UTC (ventana QA de P0), ninguna venta posterior, 159 h vencidas | residuo QA, inocuo: las vencidas se ignoran y se limpian perezosamente | ninguna; opcional limpieza auditada |
-| 1 caja abierta `db4fb8e5` | abierta 2026-09-07 00:52 UTC, 7 días, 0 movimientos, 0 ventas, `is_test=false`, cajero activo | warning operativo (no integridad): impide a ese cajero abrir otra por el índice único | el dueño la cierra por el flujo normal (auditado) |
+| 5 reservas IMEI vencidas | productos `is_test`, serial en `baja`, staff QA inactivo, creadas 2026-09-07 00:31–00:52 UTC = **2026-09-06 19:31–19:52 Lima** (ventana QA de P0), ninguna venta posterior, 159 h vencidas | residuo QA, inocuo: las vencidas se ignoran y se limpian perezosamente | ninguna; opcional limpieza auditada |
+| 1 caja abierta `db4fb8e5` | abierta 2026-09-07 00:52 UTC = **2026-09-06 19:52 Lima** (ésta es la fecha comercial), 7 días, 0 movimientos, 0 ventas, `is_test=false`, cajero activo | warning operativo (no integridad): impide a ese cajero abrir otra por el índice único | el dueño la cierra por el flujo normal (auditado) |
 | 2 conciliaciones pendientes | Yape S/ 107 (venta 2026-08-15) y tarjeta S/ 157 (2026-08-19); ventas reales completadas, pagos existen | backlog real de negocio | confirmación del administrador contra el extracto del proveedor; warning en cierre diario |
 
 ## OLA 2 · Fase 22 — Reportes (en curso)
@@ -1284,7 +1292,8 @@ fijado como coste documentado.
 Intacta respecto a `70578db`. No se ha ejecutado ninguna escritura de esta fase.
 
 Datos preexistentes a clasificar (NO sanear sin justificación): 5 reservas IMEI vencidas
-del 2026-09-07, 1 caja abierta desde 2026-09-07, 2 conciliaciones pendientes.
+del 2026-09-06 (hora de Lima), 1 caja abierta desde el 2026-09-06 (19:52 Lima = 2026-09-07 00:52 UTC),
+2 conciliaciones pendientes.
 
 ## Próximo paso exacto
 
@@ -1303,3 +1312,163 @@ que las cuatro olas estén integradas y el red team final dé GO.
 - No borrar los datos preexistentes listados arriba sin clasificarlos antes.
 - Protección de contraseñas filtradas de Supabase: configuración externa, se pide
   al dueño **sólo cuando todo lo demás esté terminado**.
+
+---
+
+## Pasada del agente 4 — testing, seguridad y DevOps (2026-09-17)
+
+Base: commit `5149079`, árbol limpio. Ninguna escritura a producción, ningún workflow disparado,
+ninguna migración editada.
+
+### Gates reproducidos en local (macOS, sobre el árbol de `5149079`)
+
+| Gate | Comando | Resultado |
+|---|---|---|
+| Unitarios/estáticos | `npm test` | exit 0 |
+| Lint | `npm run lint` | exit 0 (sólo warnings de `no-unused-vars` en scripts) |
+| Build | `npm run build` | exit 0 |
+| Transferencias parciales (54333) | `node scripts/verify-transferencias-parciales.mjs` | 63/63 · PASS |
+| Recepción de compras (54339) | `node scripts/verify-recepcion-compras.mjs` | 96/96 · PASS |
+| Caja y autorización (54341) | `node scripts/verify-caja-autorizacion.mjs` | 32/32 · PASS |
+| Conciliación de pagos (54336) | `node scripts/verify-pagos-conciliacion.mjs` | 41/41 · PASS |
+| E2E de navegador | `node scripts/verify-e2e-ui.mjs --verbose` | Caja 6/6 · Transferencias 4/4 · Offline 3/3 · fugas 0 · PASS |
+
+El ensayo compuesto (puerto 54360) lo ejecuta el coordinador. El red team se validó sobre una copia
+del ensayo en un puerto propio (54372) y un `.p04-pgtest` aparte, para no chocar con esa ejecución.
+
+### `integracion.yml` — qué se corrigió
+
+Checklist punto por punto en el informe al coordinador. Cambios aplicados:
+
+1. `defaults.run.shell: bash` → los pasos corren con `-eo pipefail`. Sin esto, el `tee` que guarda la
+   evidencia habría enmascarado el código de salida de cada script (el shell por defecto de GitHub es
+   `bash -e`, **sin** `pipefail`): un ensayo en rojo habría salido verde. Era el único fallo abierto
+   real del workflow.
+2. Guarda explícita anti-secretos antes de instalar nada: aborta si aparece `.env`/`.env.local`/
+   `.env.production` en el checkout, si hay `VITE_SUPABASE_*`, `SUPABASE_SERVICE_ROLE_KEY`,
+   `SUPABASE_ACCESS_TOKEN` o `WHATSAPP_APP_SECRET` en el entorno, o si el propio workflow
+   referenciara un `secrets.*`.
+3. Preflight del entorno: comprueba que `npm ci` dejó el binario Linux de PostgreSQL embebido, lo
+   ejecuta con `--version`, verifica que el job no corre como root (PostgreSQL no arranca como root) y
+   que están Chrome y `playwright-core`. Falla cerrado con mensaje propio en vez de morir por timeout.
+4. Una suite SQL por paso, con `if: ${{ !cancelled() }}`: se ejecutan todas aunque una falle, y queda
+   la evidencia de todas. Un paso fallido sigue fallando el job (no es `continue-on-error`).
+5. Artefacto `integracion-evidencia-<run_id>-<intento>` con los logs del ensayo, de las cuatro suites
+   y del E2E, más `.p04-pgtest/huella-local-funciones.txt`. `if-no-files-found: error`.
+6. `cache-dependency-path` con los tres lockfiles (raíz, `.p04-pgtest`, `.p1-e2e`).
+7. Documentado en la cabecera de dónde sale PostgreSQL (binarios embebidos, un puerto por script) y
+   por qué no hay `services:` ni base externa.
+
+**No ejecutado.** `workflow_dispatch` queda listo; el disparo es del coordinador.
+
+### Red team reforzado (`scripts/compuesto/zz_red_team.mjs`)
+
+Se conservan A–D y se añaden E–K, todos sobre el catálogo completo y con fallo cerrado: si una
+enumeración vuelve vacía la comprobación es FAIL (no PASS), y las listas blancas son estado
+clasificado y fechado, de modo que cualquier objeto nuevo —lo traiga la migración que lo traiga—
+queda fuera y falla nombrando al culpable. Cuatro comprobaciones no leen sólo el catálogo: ejecutan
+el ataque (TRUNCATE del libro de auditoría, `setval` sobre un correlativo fiscal, UPDATE del
+documento de un cliente ajeno, `crear_primer_admin`).
+
+Resultado de la primera pasada sobre el compuesto con `_p3_a` aplicada: **7 hallazgos**, todos
+reproducibles. Están en [BACKLOG.md](BACKLOG.md) como RT-1 … RT-4. `search_path` quedó cerrado por
+`_p3_a` (agente 1): 0 funciones de `public`/`private` sin `search_path`, 155/155 `SECURITY DEFINER`
+con él.
+
+---
+
+# OLA P3 — Cierre de deuda interna y P2 (2026-09-27)
+
+Estado: **aplicada y verificada en producción**. 172 migraciones registradas; paridad de la lista
+de migraciones con el repositorio: PASS (md5 `cb91f806b01846f65b36e56992721444`, 172 archivos).
+
+## Migraciones
+
+| Versión | Migración | Deuda que cierra |
+|---|---|---|
+| 20260927150006 | `p3_a_search_path_funciones_privadas` | las 4 funciones de `private` sin `search_path` |
+| 20260927150450 | `p3_b_transferencias_t3_t4` | T3 (faltante que nunca dejaba de contar), T4 (creación sin clave) y **T7** (hallazgo nuevo) |
+| 20260927151138 | `p3_c_recepcion_b3_b4` | B3 (corrección sobre orden terminada y que resta), B4 (cierre con faltantes) |
+| 20260927151419 | `p3_d_privilegios_hardening` | RT-1, RT-2, RT-3 y **RT-4** del red team |
+
+## Verificación paso a paso (cada una antes de la siguiente)
+
+| Paso | Migración | Resultado |
+|---|---|---|
+| 16 | `p3_a` | 6 huellas observables ✓ · **0 funciones sin `search_path`** (antes 4) · las 4 con md5(prosrc), ACL `{postgres=X/postgres}` y `search_path=""` exactos · 5 triggers vivos · anon secdef 0 · 169 registradas · md5 registrado = archivo |
+| 17 | `p3_b` | 6 huellas ✓ · 4/4 funciones idénticas al ensayo · **una sola firma** de `crear_transferencia_stock` · índice `ts_creacion_idempotente` y check de clave completa presentes · ACL sin anon · 170 registradas · md5 = archivo |
+| 18 | `p3_c` | 6 huellas ✓ · 8/8 funciones idénticas · 2 firmas de `recibir_orden_compra` (idempotente + envoltorio de compatibilidad) · índice de idempotencia del cierre y trigger de inmutabilidad presentes · 171 registradas · md5 = archivo |
+| 19 | `p3_d` | 6 huellas ✓ · RT-1 cerrado (sin INSERT/UPDATE de `documento`/`direccion`) y mostrador intacto (`nombre`, `notas`, `telefono`, y la RPC de administración) · **0 tablas con TRUNCATE** (antes 69 de 74) · **0 secuencias accesibles** (antes 9 con UPDATE) · **0 libros editables** conservando su INSERT · 172 registradas · md5 = archivo |
+
+## Hallazgos nuevos de esta ola (no estaban en la lista de deuda)
+
+- **T7** — `recibir_transferencia_parcial` conciliaba un IMEI sin comprobar que perteneciera a la
+  variante de la línea: el serial se movía al destino y se contaba en la línea equivocada, y
+  `sincronizar_stock_serializado` se llamaba con la variante de la otra, así que `inventory` dejaba
+  de cuadrar con `product_serials`. Lo dispara un operador escaneando en la línea equivocada, sin
+  mala fe. Cerrado uniendo con `product_serials` dentro del propio UPDATE.
+- **RT-1** — `actualizar_cliente_crm` exige administración para `documento`, pero `_p2_d` dejó esa
+  columna con privilegio para `authenticated` y la policy de UPDATE es `true`: el control se saltaba
+  con un PATCH a `/rest/v1/clientes`. Confirmado en producción. Matiz honesto: el titular del red
+  team decía «un autenticado sin ficha de staff» y hoy los 3 usuarios de Auth tienen ficha, así que
+  el defecto real es el control esquivable, no un acceso anónimo.
+- **RT-2** — 69 de 74 tablas concedían TRUNCATE a `authenticated`. **La RLS no filtra TRUNCATE.**
+- **RT-3** — 9 secuencias con UPDATE (= `setval`), incluidos los correlativos de boleta y factura.
+- **RT-4** — `cliente_puntos_movimientos`, `inventory_movements` y `orden_servicio_historial`
+  concedían UPDATE/DELETE. Hoy la RLS los bloquea (no hay policy de escritura): defensa en
+  profundidad, no exposición actual.
+
+## Evidencia
+
+- Ensayo compuesto con las 19 migraciones nuevas: huella 7/7 · estructurales 30/30 · **negocio
+  229/229** en 12 módulos (red team incluido) · STATUS PASS.
+- Mutación: sin `p3_b` caen 15 comprobaciones de negocio; sin `p3_d`, 6; sin `p3_a`, 5 (33/38 de su
+  módulo). Sin `p3_c` sólo cae la marca de mutación, porque **no existe módulo de negocio de
+  compras**: su evidencia vive en la suite, que ejercita B3/B4 contra el archivo real y compara con
+  la versión vieja (fases B2 y J).
+- Suites SQL como `authenticated`: transferencias **103/103** (antes 63), compras **167/167** (antes
+  96), caja 32/32, pagos 41/41.
+- E2E navegador: Caja 6/6 · Transferencias 4/4 · Offline 3/3 · 0 fugas.
+- `npm test` 393 PASS · lint 0 errores · build OK.
+
+## Interfaz conectada (si no, la corrección no llega al mostrador)
+
+- `Transferencias.tsx` manda la clave de idempotencia al crear, y la regenera si se edita el
+  contenido (misma clave con otro contenido la rechaza el servidor, y corregir un dato es legítimo).
+  Sin esto, `_p3_b` habría roto la creación de transferencias: hace DROP de la firma de 3 argumentos.
+- `Compras.tsx`: botón **Cerrar orden con faltantes** (motivo obligatorio, clave propia) y campo
+  **Revertir** en modo corrección para líneas sin IMEI.
+
+## Límites declarados de esta ola
+
+- **T5 (sobrante) sigue pendiente de decisión del dueño**; expediente más abajo. Ni una línea de
+  comportamiento nuevo hasta que decida.
+- La reversión de unidades **con IMEI** no está expuesta en la interfaz (exige elegir qué unidades):
+  el servidor la soporta; la pantalla sólo ofrece la de líneas sin IMEI.
+- Falta un módulo de negocio de compras en el ensayo, para que la mutación de `p3_c` sea visible ahí.
+- `integracion.yml` sigue **sin ejecutarse en un runner Linux**.
+- La cabecera de `_p3_d` conserva una frase obsoleta («se conserva USAGE») de una versión anterior
+  del diseño: el comportamiento real y verificado es que **no queda ningún privilegio de secuencia**
+  para `authenticated` ni `anon`. No se edita porque la migración ya está aplicada y el texto
+  registrado debe seguir coincidiendo byte a byte con el archivo.
+- Observabilidad: `execute_sql` se conecta como `supabase_read_only_user`, que **no es miembro de
+  `authenticated`**, así que `information_schema.column_privileges` le devuelve 0 filas y la huella
+  de privilegios de columna es inobservable desde ahí. Las comprobaciones de columna usan
+  `has_column_privilege`, que es autoritativo e independiente del rol.
+
+## T5 — expediente para decisión del dueño (sobrante sin contrapartida)
+
+**Qué pasa hoy.** Si en una transferencia llegan más unidades sin IMEI de las enviadas, el exceso
+entra al stock del destino con `cantidad_sobrante` derivada y la línea marcada `con_diferencia`. El
+origen no descuenta nada: aparece stock que nadie envió.
+
+| Opción | Efecto contable | `inventory` | `product_serials` | Riesgo |
+|---|---|---|---|---|
+| **A. Dejarlo como está** (marcado, no silencioso) | El sobrante infla el inventario del destino sin contrapartida; queda visible como diferencia | +exceso en destino | sin cambio | Un conteo mal hecho se convierte en stock real; se detecta sólo revisando diferencias |
+| **B. Rechazar el sobrante** | Nada entra; la recepción falla hasta corregir el conteo | sin cambio | sin cambio | Bloquea el mostrador cuando el proveedor/sucursal sí mandó de más de verdad |
+| **C. Aceptarlo con contrapartida en el origen** (recomendada) | El exceso se registra como ajuste explícito del origen: sale de allí y entra aquí, con motivo y responsable | +exceso destino, −exceso origen | sin cambio | Exige que el origen tenga ese stock; si no, hay que decidir si se permite negativo o se rechaza |
+| **D. Cuarentena del sobrante** | Entra pero no vendible hasta que alguien lo resuelva | +exceso en cuarentena | n/a para líneas sin IMEI | Necesita una noción de cuarentena para producto no serializado, que hoy no existe |
+
+**Recomendación:** C. Es la única que deja el inventario global cuadrado y mantiene el rastro de
+quién decidió qué. Requiere tu confirmación sobre el caso límite: si el origen no tiene ese stock,
+¿se rechaza la recepción o se permite el ajuste negativo con autorización?

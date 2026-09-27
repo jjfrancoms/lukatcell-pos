@@ -368,7 +368,10 @@ function Cifra({ label, valor, tono }: { label: string; valor: number; tono?: st
   return <div className="rounded-lg bg-[#0d1117] px-1 py-1.5"><p className="text-[9px] uppercase text-gray-600">{label}</p><p className={`text-sm font-bold ${tono || 'text-gray-300'}`}>{valor}</p></div>
 }
 
-// crear_transferencia_stock no recibe clave idempotente: el botón se bloquea durante el envío.
+// _p3_b: crear_transferencia_stock EXIGE clave de idempotencia (fallo cerrado). La clave se
+// mantiene estable mientras el contenido no cambie, para que un reintento tras un error de red
+// devuelva el mismo borrador en vez de crear dos; y se regenera al editar dest/items/obs, porque
+// esa misma clave con otro contenido la rechaza el servidor (y corregir un dato es legítimo).
 function Nueva({ locs, vars, onClose, onSaved }: { locs: Loc[]; vars: Variant[]; onClose: () => void; onSaved: () => void }) {
   const { showToast } = useToast()
   const [dest, setDest] = useState(locs[0]?.id || '')
@@ -376,6 +379,8 @@ function Nueva({ locs, vars, onClose, onSaved }: { locs: Loc[]; vars: Variant[];
   const [obs, setObs] = useState('')
   const [saving, setSaving] = useState(false)
   const enCurso = useRef(false)
+  const clave = useRef(crypto.randomUUID())
+  useEffect(() => { clave.current = crypto.randomUUID() }, [dest, items, obs])
   const cambiarVar = async (idx: number, variant_id: string) => {
     let seriales: Serial[] = []
     const v = vars.find(x => x.id === variant_id)
@@ -403,7 +408,7 @@ function Nueva({ locs, vars, onClose, onSaved }: { locs: Loc[]; vars: Variant[];
     enCurso.current = true
     setSaving(true)
     try {
-      const { error } = await supabase.rpc('crear_transferencia_stock', { p_destino_id: dest, p_items: payload, p_observacion: obs || null })
+      const { error } = await supabase.rpc('crear_transferencia_stock', { p_destino_id: dest, p_items: payload, p_observacion: obs || null, p_client_transaction_id: clave.current })
       if (error) { showToast(error.message, 'error'); return }
       showToast('Transferencia creada', 'success')
       onSaved()

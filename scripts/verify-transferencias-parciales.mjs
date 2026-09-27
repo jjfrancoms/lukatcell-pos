@@ -27,6 +27,7 @@
 // ============================================================================
 
 import { createRequire } from 'node:module'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 // Nombre lógico → archivo real (provisional `_p1_a_…` o versionado tras aplicarse en producción).
 import { resolverMigracion } from './lib/migraciones.mjs'
@@ -117,8 +118,8 @@ const U = (n) => `${String(n).repeat(8)}-${String(n).repeat(4)}-4${String(n).rep
 const LOC_A = U(1), LOC_B = U(2), LOC_C = U(3)
 const USER_A = U(4), USER_B = U(5), USER_C = U(6)
 const STAFF_A = U(7), STAFF_B = U(8), STAFF_C = U(9)
-const PROD_NS = U('a'), PROD_S = U('b')
-const VAR_NS = U('c'), VAR_S = U('d')
+const PROD_NS = U('a'), PROD_S = U('b'), PROD_S2 = U('e')
+const VAR_NS = U('c'), VAR_S = U('d'), VAR_S2 = U('f')
 
 const ESQUEMA_BASE = `
 drop schema if exists t13 cascade;
@@ -127,7 +128,9 @@ create schema t13;
 create table t13.locations(id uuid primary key, nombre text, activo boolean not null default true);
 create table t13.staff(id uuid primary key, user_id uuid, activo boolean not null default true,
   rol text, puesto text, location_id uuid, active_location_id uuid);
-create table t13.staff_locations(staff_id uuid, location_id uuid, primary key(staff_id, location_id));
+create table t13.staff_locations(staff_id uuid, location_id uuid,
+  puede_vender boolean, puede_inventario boolean, puede_taller boolean,
+  primary key(staff_id, location_id));
 create table t13.products(id uuid primary key, nombre text,
   control_serial boolean not null default false, is_test boolean not null default false);
 create table t13.product_variants(id uuid primary key, product_id uuid not null references t13.products(id));
@@ -194,6 +197,30 @@ set search_path to 't13' as $fn$
          then s.active_location_id else s.location_id end
   from t13.staff s where s.user_id = t13.uid() and s.activo = true limit 1
 $fn$;
+
+-- private.tiene_capacidad de _p2_h_capacidades.sql, con el mismo cuerpo: es el
+-- control de permiso que usa la versión VIGENTE de recibir_transferencia_parcial
+-- (_p2_i). Sin él se estaría probando la versión de _p1_a, que ya no es la que
+-- corre en producción.
+create function t13.tiene_capacidad(p_capacidad text) returns boolean language plpgsql stable
+security definer set search_path to 't13' as $fn$
+declare v_actor t13.staff; v_flag boolean;
+begin
+  if p_capacidad is null or p_capacidad not in ('supervisar','operar_inventario','operar_taller','vender') then
+    raise exception 'Capacidad desconocida: %', p_capacidad;
+  end if;
+  select * into v_actor from t13.staff where user_id = t13.uid() and activo = true limit 1;
+  if v_actor.id is null then return false; end if;
+  if v_actor.rol = 'administrador' then return true; end if;
+  if p_capacidad = 'supervisar' then return coalesce(v_actor.puesto,'') in ('encargado','jefa'); end if;
+  if p_capacidad in ('operar_inventario','operar_taller')
+     and coalesce(v_actor.puesto,'') not in ('tecnico','encargado','jefa') then return false; end if;
+  select case p_capacidad when 'operar_inventario' then sl.puede_inventario
+                          when 'operar_taller' then sl.puede_taller else sl.puede_vender end
+    into v_flag from t13.staff_locations sl
+   where sl.staff_id = v_actor.id and sl.location_id = t13.auth_location_id();
+  return coalesce(v_flag, true);
+end $fn$;
 
 create function t13.registrar_auditoria() returns trigger language plpgsql security definer
 set search_path to 't13' as $fn$
@@ -262,6 +289,9 @@ await admin.query(`do $do$ begin
   if not exists(select 1 from pg_roles where rolname = 'authenticated') then
     create role authenticated nologin;
   end if;
+  if not exists(select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
 end $do$;`)
 
 await admin.query(ESQUEMA_BASE)
@@ -289,8 +319,19 @@ const SQL_MIGRACION = aEsquemaPrueba(fs.readFileSync(MIGRACION, 'utf8'))
 await admin.query(SQL_MIGRACION)
 const DESPACHO_NUEVO = aEsquemaPrueba(funcionDeMigracion('_p1_a_transferencias_parciales.sql', 'despachar_transferencia_stock'))
 
+// --- P3.B (T3 · T4 · T7) --------------------------------------------------
+// MUTACIÓN: con TRANSF_SIN_P3B=1 la migración NO se aplica. Sirve para
+// demostrar cuántas comprobaciones dependen de verdad de ella. El resultado se
+// marca y nunca cuenta como PASS.
+const SIN_P3B = process.env.TRANSF_SIN_P3B === '1'
+const MIGRACION_P3B = MIGRACIONES + resolverMigracion('_p3_b_transferencias_t3_t4.sql')
+if (!fs.existsSync(MIGRACION_P3B)) abortar(`No existe la migración bajo prueba: ${MIGRACION_P3B}`)
+if (!SIN_P3B) await admin.query(aEsquemaPrueba(fs.readFileSync(MIGRACION_P3B, 'utf8')))
+// Las funciones nuevas de la migración nacen sin EXECUTE para `authenticated`
+// en este esquema de prueba salvo por sus propios grants; se comprueba abajo.
+
 // --- Siembra ----------------------------------------------------------------
-async function sembrar({ nsA = 0, serialesA = 0 } = {}) {
+async function sembrar({ nsA = 0, serialesA = 0, serialesA2 = 0 } = {}) {
   await admin.query(`truncate t13.transferencia_recepcion_serials, t13.transferencia_recepcion_items,
     t13.transferencia_recepciones, t13.transferencia_stock_serials, t13.transferencia_stock_items,
     t13.transferencias_stock, t13.inventory, t13.inventory_movements, t13.product_serials,
@@ -309,15 +350,22 @@ async function sembrar({ nsA = 0, serialesA = 0 } = {}) {
   await admin.query(`insert into t13.staff(id,user_id,rol,puesto,location_id) values
     ($1,$2,'administrador','jefa',$3), ($4,$5,'vendedor','encargado',$6), ($7,$8,'vendedor','encargado',$9)`,
     [STAFF_A, USER_A, LOC_A, STAFF_B, USER_B, LOC_B, STAFF_C, USER_C, LOC_C])
-  await admin.query(`insert into t13.products(id,nombre,control_serial) values ($1,'Cargador',false),($2,'iPhone 13',true)`,
-    [PROD_NS, PROD_S])
-  await admin.query(`insert into t13.product_variants(id,product_id) values ($1,$2),($3,$4)`,
-    [VAR_NS, PROD_NS, VAR_S, PROD_S])
+  await admin.query(`insert into t13.products(id,nombre,control_serial) values
+    ($1,'Cargador',false),($2,'iPhone 13',true),($3,'Galaxy S22',true)`, [PROD_NS, PROD_S, PROD_S2])
+  await admin.query(`insert into t13.product_variants(id,product_id) values ($1,$2),($3,$4),($5,$6)`,
+    [VAR_NS, PROD_NS, VAR_S, PROD_S, VAR_S2, PROD_S2])
   if (nsA > 0) await admin.query(`insert into t13.inventory(variant_id,location_id,cantidad) values ($1,$2,$3)`, [VAR_NS, LOC_A, nsA])
   if (serialesA > 0) {
     await admin.query(`insert into t13.product_serials(variant_id,location_id,serial_number,estado)
       select $1,$2,'IMEI-'||lpad(g::text,3,'0'),'disponible' from generate_series(1,$3) g`, [VAR_S, LOC_A, serialesA])
     await admin.query(`insert into t13.inventory(variant_id,location_id,cantidad) values ($1,$2,$3)`, [VAR_S, LOC_A, serialesA])
+  }
+  // Segunda variante CON IMEI: sólo la usan los casos que necesitan dos líneas
+  // serializadas en la misma transferencia ("IMEI de otra variante").
+  if (serialesA2 > 0) {
+    await admin.query(`insert into t13.product_serials(variant_id,location_id,serial_number,estado)
+      select $1,$2,'SN2-'||lpad(g::text,3,'0'),'disponible' from generate_series(1,$3) g`, [VAR_S2, LOC_A, serialesA2])
+    await admin.query(`insert into t13.inventory(variant_id,location_id,cantidad) values ($1,$2,$3)`, [VAR_S2, LOC_A, serialesA2])
   }
 }
 
@@ -344,9 +392,17 @@ async function desincronizados() {
   return rows.filter((r) => r.cantidad !== r.disponibles)
 }
 
-async function crear(cli, user, items, destino = LOC_B) {
-  const { rows } = await comoUsuario(cli, user,
-    'select (t13.crear_transferencia_stock($1::uuid,$2::jsonb,null)).id as id', [destino, JSON.stringify(items)])
+// _p3_b cambia la firma: crear_transferencia_stock exige clave de idempotencia.
+// El arnés la manda siempre; en modo mutación (sin la migración) se usa la firma
+// vieja de 3 argumentos para que el resto de la suite siga ejerciéndose.
+const SQL_CREAR = SIN_P3B
+  ? 'select (t13.crear_transferencia_stock($1::uuid,$2::jsonb,null)).id as id'
+  : 'select (t13.crear_transferencia_stock($1::uuid,$2::jsonb,null,$3::uuid)).id as id'
+const argsCrear = (destino, items, clave) => SIN_P3B
+  ? [destino, JSON.stringify(items)]
+  : [destino, JSON.stringify(items), clave]
+async function crear(cli, user, items, destino = LOC_B, clave = null) {
+  const { rows } = await comoUsuario(cli, user, SQL_CREAR, argsCrear(destino, items, clave || crypto.randomUUID()))
   return rows[0].id
 }
 const recibirParcial = (cli, user, tid, key, items, cerrar = false) => comoUsuario(cli, user,
@@ -679,9 +735,8 @@ async function carrera(tid, itemId, keyA, keyB, cant) {
 
   // 8a · El mismo IMEI no puede entrar en dos transferencias abiertas.
   const t1 = await crear(cli, USER_A, [{ variant_id: VAR_S, cantidad: 2, serial_ids: [sids[0].id, sids[1].id] }])
-  const e1 = await falla(cli, USER_A,
-    'select t13.crear_transferencia_stock($1::uuid,$2::jsonb,null)',
-    [LOC_C, JSON.stringify([{ variant_id: VAR_S, cantidad: 1, serial_ids: [sids[0].id] }])])
+  const e1 = await falla(cli, USER_A, SQL_CREAR,
+    argsCrear(LOC_C, [{ variant_id: VAR_S, cantidad: 1, serial_ids: [sids[0].id] }], crypto.randomUUID()))
   check(e1 !== null, 'T8a un IMEI ya reservado no puede entrar en una segunda transferencia',
     e1 ? e1.message.slice(0, 90) : 'la segunda transferencia se creó')
 
@@ -834,6 +889,287 @@ async function escenarioD1() {
 }
 
 // ===========================================================================
+// T12 · T3 — TODAS LAS UNIDADES IDENTIFICADAS: LA TRANSFERENCIA CIERRA SOLA
+// ===========================================================================
+// Deuda T3: un IMEI marcado "no llegó" no tocaba ningún acumulador, así que la
+// fórmula de pendientes (recibida + danada < cantidad) lo seguía contando y la
+// cabecera se quedaba en 'recibida_parcial' para siempre, aunque no quedara
+// NADA que identificar. El operador ya había hecho todo su trabajo.
+{
+  await sembrar({ serialesA: 5 })
+  const { rows: sids } = await admin.query('select id, serial_number from t13.product_serials order by serial_number')
+  const tid = await crear(cli, USER_A, [{ variant_id: VAR_S, cantidad: 5, serial_ids: sids.map((x) => x.id) }])
+  await comoUsuario(cli, USER_A, 'select t13.despachar_transferencia_stock($1::uuid)', [tid])
+  const [it] = await linea(tid)
+
+  // Una sola recepción que identifica LAS CINCO: 3 bien, 1 dañada, 1 no llegó.
+  // No se pide cerrar: la transferencia tiene que cerrarse por sí misma.
+  const e = await falla(cli, USER_B,
+    'select t13.recibir_transferencia_parcial($1::uuid,$2::uuid,$3::jsonb,null,false) as d',
+    [tid, K(1), JSON.stringify([{ item_id: it.id, serials: [
+      { serial_id: sids[0].id, resultado: 'ok' }, { serial_id: sids[1].id, resultado: 'ok' },
+      { serial_id: sids[2].id, resultado: 'ok' }, { serial_id: sids[3].id, resultado: 'danado' },
+      { serial_id: sids[4].id, resultado: 'faltante' }] }])])
+  check(e === null, 'T12 la recepción que identifica todas las unidades se aplica', e ? e.message.slice(0, 110) : '')
+
+  const l = (await linea(tid))[0]
+  const c = await cab(tid)
+  check(c.estado === 'recibida', 'T12 la cabecera CIERRA SOLA: no queda nada que identificar (deuda T3)',
+    `estado=${c.estado}`)
+  check(l.cantidad_recibida === 3 && l.cantidad_danada === 1 && l.cantidad_faltante === 1,
+    'T12 la línea cuadra 3 ok + 1 dañada + 1 faltante = 5 enviadas',
+    `ok=${l.cantidad_recibida} dan=${l.cantidad_danada} falt=${l.cantidad_faltante}`)
+  check(l.estado_linea === 'con_diferencia' && c.tiene_diferencias === true,
+    'T12 el cierre automático queda marcado con diferencias', `linea=${l.estado_linea} dif=${c.tiene_diferencias}`)
+  const est = Object.fromEntries((await seriales()).map((x) => [x.serial_number, x.estado]))
+  check(est['IMEI-005'] === 'faltante' && est['IMEI-004'] === 'cuarentena',
+    'T12 el faltante no resucita y el dañado va a cuarentena', JSON.stringify(est))
+  check(await inv(VAR_S, LOC_B) === 3 && await inv(VAR_S, LOC_A) === 0,
+    'T12 el stock final cuadra: sólo entran las 3 buenas',
+    `A=${await inv(VAR_S, LOC_A)} B=${await inv(VAR_S, LOC_B)}`)
+  const { rows: det } = await comoUsuario(cli, USER_B, 'select t13.transferencia_detalle($1::uuid) as d', [tid])
+  check(det[0].d?.lineas?.[0]?.pendiente === 0,
+    'T12 el detalle deja de anunciar un pendiente que nadie puede recibir',
+    JSON.stringify(det[0].d?.lineas?.[0]))
+  check((await desincronizados()).length === 0, 'T12 inventory sigue cuadrando con product_serials')
+}
+
+// ===========================================================================
+// T12b · T3 en DOS TANDAS: el faltante de la primera no bloquea el cierre
+// ===========================================================================
+{
+  await sembrar({ serialesA: 4 })
+  const { rows: sids } = await admin.query('select id, serial_number from t13.product_serials order by serial_number')
+  const tid = await crear(cli, USER_A, [{ variant_id: VAR_S, cantidad: 4, serial_ids: sids.map((x) => x.id) }])
+  await comoUsuario(cli, USER_A, 'select t13.despachar_transferencia_stock($1::uuid)', [tid])
+  const [it] = await linea(tid)
+
+  await recibirParcial(cli, USER_B, tid, K(2), [{ item_id: it.id, serials: [
+    { serial_id: sids[0].id, resultado: 'ok' }, { serial_id: sids[1].id, resultado: 'faltante' }] }])
+  let l = (await linea(tid))[0]
+  check((await cab(tid)).estado === 'recibida_parcial' && l.cantidad_faltante === 1 && l.estado_linea === 'parcial',
+    'T12b con unidades aún sin identificar la transferencia sigue parcial y el faltante ya está contado',
+    `estado=${(await cab(tid)).estado} falt=${l.cantidad_faltante} linea=${l.estado_linea}`)
+
+  await recibirParcial(cli, USER_B, tid, K(3), [{ item_id: it.id, serials: [
+    { serial_id: sids[2].id, resultado: 'ok' }, { serial_id: sids[3].id, resultado: 'faltante' }] }])
+  l = (await linea(tid))[0]
+  check((await cab(tid)).estado === 'recibida' && l.cantidad_recibida === 2 && l.cantidad_faltante === 2,
+    'T12b la segunda tanda completa la identificación y cierra',
+    `estado=${(await cab(tid)).estado} ok=${l.cantidad_recibida} falt=${l.cantidad_faltante}`)
+  check(await inv(VAR_S, LOC_B) === 2, 'T12b sólo entran las unidades que llegaron')
+  check((await desincronizados()).length === 0, 'T12b inventory cuadra con product_serials')
+}
+
+// ===========================================================================
+// T12c · "RECIBIR TODO LO PENDIENTE" NO RESUCITA UN FALTANTE
+// ===========================================================================
+// Con el faltante fuera de la fórmula, p_items NULL volvía a pedir la unidad ya
+// dada por perdida. Con IMEI el filtro `resultado is null` la salvaba; la
+// cantidad derivada de la línea, no.
+{
+  await sembrar({ serialesA: 4 })
+  const { rows: sids } = await admin.query('select id, serial_number from t13.product_serials order by serial_number')
+  const tid = await crear(cli, USER_A, [{ variant_id: VAR_S, cantidad: 4, serial_ids: sids.map((x) => x.id) }])
+  await comoUsuario(cli, USER_A, 'select t13.despachar_transferencia_stock($1::uuid)', [tid])
+  const [it] = await linea(tid)
+  await recibirParcial(cli, USER_B, tid, K(4), [{ item_id: it.id,
+    serials: [{ serial_id: sids[0].id, resultado: 'faltante' }] }])
+  const e = await falla(cli, USER_B,
+    'select t13.recibir_transferencia_parcial($1::uuid,$2::uuid,null,null,false) as d', [tid, K(5)])
+  check(e === null, 'T12c "recibir todo lo pendiente" tras un faltante no revienta', e ? e.message.slice(0, 110) : '')
+  const l = (await linea(tid))[0]
+  check(l.cantidad_recibida === 3 && l.cantidad_faltante === 1 && (await cab(tid)).estado === 'recibida',
+    'T12c recibe SÓLO las 3 que seguían en vuelo y cierra',
+    `ok=${l.cantidad_recibida} falt=${l.cantidad_faltante} estado=${(await cab(tid)).estado}`)
+  check(await inv(VAR_S, LOC_B) === 3, 'T12c el faltante no entra al stock del destino')
+  check((await desincronizados()).length === 0, 'T12c inventory cuadra con product_serials')
+}
+
+// ===========================================================================
+// T13 · IMEI SOBRANTE: una unidad que nunca se envió no se puede recibir
+// ===========================================================================
+{
+  await sembrar({ serialesA: 5 })
+  const { rows: sids } = await admin.query('select id, serial_number from t13.product_serials order by serial_number')
+  const tid = await crear(cli, USER_A,
+    [{ variant_id: VAR_S, cantidad: 3, serial_ids: [sids[0].id, sids[1].id, sids[2].id] }])
+  await comoUsuario(cli, USER_A, 'select t13.despachar_transferencia_stock($1::uuid)', [tid])
+  const [it] = await linea(tid)
+  const e = await falla(cli, USER_B,
+    'select t13.recibir_transferencia_parcial($1::uuid,$2::uuid,$3::jsonb,null,false)',
+    [tid, K(6), JSON.stringify([{ item_id: it.id, serials: [{ serial_id: sids[4].id, resultado: 'ok' }] }])])
+  check(e !== null && /no está en vuelo/i.test(e.message),
+    'T13 un IMEI que nunca se envió (sobrante) se RECHAZA: no entra por la puerta de atrás',
+    e ? e.message.slice(0, 110) : 'se aceptó')
+  const est = Object.fromEntries((await seriales()).map((x) => [x.serial_number, [x.estado, x.location_id]]))
+  check(est['IMEI-005'][0] === 'disponible' && est['IMEI-005'][1] === LOC_A,
+    'T13 el IMEI sobrante sigue disponible en el ORIGEN, intacto', JSON.stringify(est['IMEI-005']))
+  check(await inv(VAR_S, LOC_B) === 0, 'T13 el rechazo no movió stock al destino')
+  check((await desincronizados()).length === 0, 'T13 inventory cuadra con product_serials')
+}
+
+// ===========================================================================
+// T14 · IMEI DE OTRA VARIANTE (hallazgo T7 de esta auditoría)
+// ===========================================================================
+// El filtro de conciliación era (transferencia_id, serial_id, resultado is
+// null): NO comprobaba la variante. Con dos líneas serializadas en la misma
+// transferencia, escanear el IMEI de la línea B dentro de la línea A se
+// aceptaba, movía el serial al destino y sincronizaba el stock de A. El
+// inventario de B nunca subía: inventory < product_serials disponibles.
+{
+  await sembrar({ serialesA: 2, serialesA2: 2 })
+  const { rows: s1 } = await admin.query(
+    'select id, serial_number from t13.product_serials where variant_id=$1 order by serial_number', [VAR_S])
+  const { rows: s2 } = await admin.query(
+    'select id, serial_number from t13.product_serials where variant_id=$1 order by serial_number', [VAR_S2])
+  const tid = await crear(cli, USER_A, [
+    { variant_id: VAR_S, cantidad: 2, serial_ids: s1.map((x) => x.id) },
+    { variant_id: VAR_S2, cantidad: 2, serial_ids: s2.map((x) => x.id) }])
+  await comoUsuario(cli, USER_A, 'select t13.despachar_transferencia_stock($1::uuid)', [tid])
+  const items = await linea(tid)
+  const itS = items.find((x) => x.variant_id === VAR_S)
+  const itS2 = items.find((x) => x.variant_id === VAR_S2)
+
+  const e = await falla(cli, USER_B,
+    'select t13.recibir_transferencia_parcial($1::uuid,$2::uuid,$3::jsonb,null,false)',
+    [tid, K(7), JSON.stringify([{ item_id: itS.id, serials: [{ serial_id: s2[0].id, resultado: 'ok' }] }])])
+  check(e !== null && /no está en vuelo/i.test(e.message),
+    'T14 un IMEI de OTRA variante no se concilia en esta línea (T7)',
+    e ? e.message.slice(0, 130) : 'se aceptó el IMEI de otra variante')
+  check((await desincronizados()).length === 0,
+    'T14 el intento no desincronizó inventory de product_serials', JSON.stringify(await desincronizados()))
+  check(await inv(VAR_S2, LOC_B) === 0 && await inv(VAR_S, LOC_B) === 0, 'T14 el rechazo no movió nada')
+
+  // Y la vía correcta sí funciona, cada IMEI en su línea. (Se usa `falla` y no
+  // `recibirParcial` porque sin la corrección el intento anterior SÍ se aplica
+  // y deja el IMEI ya conciliado: la suite debe reportarlo, no reventar.)
+  const eOk = await falla(cli, USER_B,
+    'select t13.recibir_transferencia_parcial($1::uuid,$2::uuid,$3::jsonb,null,false)',
+    [tid, K(8), JSON.stringify([
+      { item_id: itS.id, serials: s1.map((x) => ({ serial_id: x.id, resultado: 'ok' })) },
+      { item_id: itS2.id, serials: s2.map((x) => ({ serial_id: x.id, resultado: 'ok' })) }])])
+  check(eOk === null, 'T14 la recepción con cada IMEI en su línea se aplica', eOk ? eOk.message.slice(0, 110) : '')
+  check(await inv(VAR_S, LOC_B) === 2 && await inv(VAR_S2, LOC_B) === 2,
+    'T14 con cada IMEI en su línea, AMBOS inventarios del destino suben',
+    `S=${await inv(VAR_S, LOC_B)} S2=${await inv(VAR_S2, LOC_B)}`)
+  check((await cab(tid)).estado === 'recibida', 'T14 la transferencia de dos líneas cierra')
+  check((await desincronizados()).length === 0, 'T14 inventory cuadra con product_serials en ambas variantes')
+}
+
+// ===========================================================================
+// T15 · T4 — CREACIÓN IDEMPOTENTE
+// ===========================================================================
+const nTransf = async () => (await admin.query('select count(*)::int as n from t13.transferencias_stock')).rows[0].n
+{
+  await sembrar({ nsA: 10 })
+  const clave = crypto.randomUUID()
+  const contenido = [{ variant_id: VAR_NS, cantidad: 3, serial_ids: [] }]
+
+  // Sin clave no se crea nada. Fallo CERRADO: ningún cliente puede optar por
+  // no tener idempotencia.
+  const eSin = await falla(cli, USER_A,
+    'select t13.crear_transferencia_stock($1::uuid,$2::jsonb,null,null)',
+    [LOC_B, JSON.stringify(contenido)])
+  check(eSin !== null && /client_transaction_id/i.test(eSin.message),
+    'T15 la creación exige client_transaction_id', eSin ? eSin.message.slice(0, 110) : 'creó sin clave')
+  check(await nTransf() === 0, 'T15 el intento sin clave no dejó ningún borrador')
+
+  // Doble envío con la MISMA clave y el mismo contenido: un solo borrador.
+  const t1 = await crear(cli, USER_A, contenido, LOC_B, clave)
+  const t2 = await crear(cli, USER_A, contenido, LOC_B, clave)
+  check(t1 === t2 && await nTransf() === 1,
+    'T15 el doble envío con la misma clave devuelve el MISMO borrador, no crea dos (deuda T4)',
+    `t1=${t1} t2=${t2} total=${await nTransf()}`)
+  const { rows: lineasT1 } = await admin.query(
+    'select count(*)::int as n from t13.transferencia_stock_items where transferencia_id=$1', [t1])
+  check(lineasT1[0].n === 1, 'T15 tampoco duplica las líneas del borrador', `lineas=${lineasT1[0].n}`)
+
+  // Misma clave, OTRO contenido: se RECHAZA. Nunca un éxito silencioso que
+  // devuelva el borrador viejo como si fuera el nuevo (lección de T2).
+  const eDist = await falla(cli, USER_A, SQL_CREAR,
+    argsCrear(LOC_B, [{ variant_id: VAR_NS, cantidad: 7, serial_ids: [] }], clave))
+  check(eDist !== null && /contenido distinto/i.test(eDist.message),
+    'T15 la misma clave con otro contenido se RECHAZA, no devuelve el borrador anterior',
+    eDist ? eDist.message.slice(0, 130) : 'lo dio por creado en silencio')
+  check(await nTransf() === 1, 'T15 el rechazo no creó un segundo borrador')
+
+  // Y una clave nueva sí crea otra transferencia: la idempotencia no bloquea.
+  const t3 = await crear(cli, USER_A, contenido, LOC_B, crypto.randomUUID())
+  check(t3 !== t1 && await nTransf() === 2, 'T15 una clave nueva sí crea una transferencia nueva')
+}
+
+// ===========================================================================
+// T16 · T4 CONCURRENTE: dos conexiones REALES con la misma clave
+// ===========================================================================
+{
+  await sembrar({ nsA: 10 })
+  const clave = crypto.randomUUID()
+  const contenido = JSON.stringify([{ variant_id: VAR_NS, cantidad: 4, serial_ids: [] }])
+  const c1 = new pg.Client({ connectionString: URL_PG })
+  const c2 = new pg.Client({ connectionString: URL_PG })
+  const testigo = new pg.Client({ connectionString: URL_PG })
+  await c1.connect(); await c2.connect(); await testigo.connect()
+  let r1 = null, r2 = null, e2 = null, bloqueoObservado = false
+  try {
+    const { rows: [{ pid }] } = await c2.query('select pg_backend_pid() as pid')
+    const abrir = async (c) => {
+      await c.query('begin')
+      await c.query(`select set_config('request.jwt.claims',$1,true)`,
+        [JSON.stringify({ sub: USER_A, role: 'authenticated' })])
+      await c.query('set local role authenticated')
+    }
+    await abrir(c1); await abrir(c2)
+    r1 = (await c1.query(SQL_CREAR, argsCrear(LOC_B, JSON.parse(contenido), clave))).rows[0].id
+    const enCurso = c2.query(SQL_CREAR, argsCrear(LOC_B, JSON.parse(contenido), clave))
+    for (let i = 0; i < 60 && !bloqueoObservado; i++) {
+      await dormir(50)
+      const { rows } = await testigo.query(
+        "select 1 from pg_stat_activity where pid=$1 and wait_event_type='Lock'", [pid])
+      bloqueoObservado = rows.length > 0
+    }
+    await c1.query('commit')
+    try { r2 = (await enCurso).rows[0].id; await c2.query('commit') }
+    catch (err) { e2 = err; await c2.query('rollback').catch(() => {}) }
+  } finally {
+    await c1.end().catch(() => {}); await c2.end().catch(() => {}); await testigo.end().catch(() => {})
+  }
+  check(bloqueoObservado, 'T16 se observó bloqueo real entre las dos conexiones (sin bloqueo no hubo carrera)')
+  check(e2 === null && r1 === r2 && await nTransf() === 1,
+    'T16 dos creaciones simultáneas con la misma clave dan UNA transferencia, y la segunda devuelve la misma',
+    `r1=${r1} r2=${r2} error=${e2 ? e2.message.slice(0, 80) : 'ninguno'} total=${await nTransf()}`)
+}
+
+// ===========================================================================
+// T17 · SUPERFICIE: una sola firma y nada para `anon`
+// ===========================================================================
+{
+  const { rows: [{ n: firmas }] } = await admin.query(
+    `select count(*)::int as n from pg_proc p join pg_namespace s on s.oid=p.pronamespace
+      where s.nspname='t13' and p.proname='crear_transferencia_stock'`)
+  check(firmas === 1, 'T17 crear_transferencia_stock deja UNA sola firma (sin sobrecarga ambigua)', `firmas=${firmas}`)
+
+  const { rows: acl } = await admin.query(
+    `select p.proname||'('||pg_get_function_identity_arguments(p.oid)||')' as f,
+            has_function_privilege('anon', p.oid, 'EXECUTE') as anon,
+            has_function_privilege('authenticated', p.oid, 'EXECUTE') as auth
+       from pg_proc p join pg_namespace s on s.oid=p.pronamespace
+      where s.nspname='t13' and p.proname in
+        ('crear_transferencia_stock','recibir_transferencia_parcial','transferencia_detalle',
+         'cerrar_transferencia_stock','despachar_transferencia_stock')`)
+  const conAnon = acl.filter((r) => r.anon).map((r) => r.f)
+  check(conAnon.length === 0, 'T17 ninguna RPC de transferencias es ejecutable por anon', conAnon.join(', '))
+  const sinAuth = acl.filter((r) => !r.auth).map((r) => r.f)
+  check(sinAuth.length === 0, 'T17 authenticated puede ejecutar todas las RPC de transferencias', sinAuth.join(', '))
+
+  const { rows: [{ n: hashPriv }] } = await admin.query(
+    `select count(*)::int as n from pg_proc p join pg_namespace s on s.oid=p.pronamespace
+      where s.nspname='t13' and p.proname='hash_transferencia_creacion'
+        and (has_function_privilege('anon', p.oid, 'EXECUTE') or has_function_privilege('authenticated', p.oid, 'EXECUTE'))`)
+  check(hashPriv === 0, 'T17 el helper de huella no es invocable por nadie de fuera', `expuesto en ${hashPriv}`)
+}
+
+// ===========================================================================
 // FIN
 // ===========================================================================
 await admin.query('drop schema if exists t13 cascade')
@@ -842,10 +1178,18 @@ await admin.end()
 if (servidorLocal) await servidorLocal.stop()
 
 console.log('FASE 13 — TRANSFERENCIAS PARCIALES')
-console.log('SQL real de supabase/migrations/_p1_a_transferencias_parciales.sql, PostgreSQL real, rol authenticated\n')
+console.log('SQL real de _p1_a_transferencias_parciales.sql + _p3_b_transferencias_t3_t4.sql, PostgreSQL real, rol authenticated')
+if (SIN_P3B) console.log('*** MUTACIÓN TRANSF_SIN_P3B=1: _p3_b NO aplicada — se esperan FAIL ***')
+console.log('')
 for (const p of pasos) console.log(`  ${p.ok ? 'ok  ' : 'FAIL'} ${p.etiqueta}`)
 console.log(`\n  ${pasos.filter((p) => p.ok).length}/${pasos.length} comprobaciones`)
 
+if (SIN_P3B) {
+  console.log(`\nMUTACIÓN: ${fallos.length} comprobaciones dependen de _p3_b_transferencias_t3_t4.sql`)
+  for (const f of fallos) console.log(`  [FAIL] ${f}`)
+  console.log('\nUna ejecución con mutación NUNCA cuenta como PASS.')
+  process.exit(1)
+}
 if (fallos.length) {
   console.log('\nFallos:')
   for (const f of fallos) console.log(`  [FAIL] ${f}`)

@@ -17,8 +17,8 @@ type RecItem={id:string;recepcion_id:string;orden_item_id:string;cantidad:number
 type SerialRec={id:string;serial_number:string;imei2:string|null;estado:string;recepcion_item_id:string|null}
 type Resultado={recepcion_id:string;corrige_recepcion_id:string|null;reintento?:boolean}
 
-type Captura={buenas:string;danadas:string;faltante:string;equivocado:string;variantEq:string;aceptaSobrante:boolean;observacion:string;imeiBuenos:string;imeiDanados:string}
-const CAPTURA_VACIA:Captura={buenas:'',danadas:'',faltante:'',equivocado:'',variantEq:'',aceptaSobrante:false,observacion:'',imeiBuenos:'',imeiDanados:''}
+type Captura={buenas:string;danadas:string;faltante:string;equivocado:string;variantEq:string;aceptaSobrante:boolean;observacion:string;imeiBuenos:string;imeiDanados:string;revertir:string}
+const CAPTURA_VACIA:Captura={buenas:'',danadas:'',faltante:'',equivocado:'',variantEq:'',aceptaSobrante:false,observacion:'',imeiBuenos:'',imeiDanados:'',revertir:''}
 
 // Un envío que no responde en este plazo se aborta; el reintento reutiliza la MISMA clave.
 const TIMEOUT_MS=30000
@@ -138,7 +138,7 @@ function Detalle({orden,variants,puedeRecibir,onClose,onChanged}:{orden:Orden;va
     for(const i of items){
       const c=captura[i.id]
       if(!c)continue
-      const tocada=c.buenas!==''||c.danadas!==''||c.faltante!==''||c.equivocado!==''||c.variantEq!==''||c.observacion.trim()!==''||c.imeiBuenos.trim()!==''||c.imeiDanados.trim()!==''
+      const tocada=c.buenas!==''||c.danadas!==''||c.faltante!==''||c.equivocado!==''||c.variantEq!==''||c.observacion.trim()!==''||c.imeiBuenos.trim()!==''||c.imeiDanados.trim()!==''||c.revertir!==''
       if(!tocada)continue
       const linea:Record<string,unknown>={
         orden_item_id:i.id,
@@ -153,6 +153,9 @@ function Detalle({orden,variants,puedeRecibir,onClose,onChanged}:{orden:Orden;va
         observacion:c.observacion.trim()||null,
       }
       if(i.variant?.product?.control_serial)linea.seriales=[...parseSeriales(c.imeiBuenos,false),...parseSeriales(c.imeiDanados,true)]
+      // _p3_c: una corrección ya puede RESTAR lo que se registró de más. Sólo viaja si se declara,
+      // y el servidor la rechaza salvo que el envío vaya enlazado a la recepción que corrige.
+      if(entero(c.revertir)>0)linea.cantidad_revertida=entero(c.revertir)
       out.push(linea)
     }
     return out
@@ -210,6 +213,23 @@ function Detalle({orden,variants,puedeRecibir,onClose,onChanged}:{orden:Orden;va
     }
   }
 
+  // _p3_c · B4: lo que el proveedor no va a mandar se cierra con motivo, en vez de dejar la orden
+  // en 'parcial' para siempre. Clave propia: reintentar tras un error de red no cierra dos veces.
+  const claveCierre=useRef(crypto.randomUUID())
+  const [cerrando,setCerrando]=useState(false)
+  const cerrarConFaltantes=async()=>{
+    const motivo=window.prompt('Cerrar la orden con faltantes. Explica por qué lo que falta ya no va a llegar (queda registrado con tu nombre):')
+    if(motivo===null)return
+    if(motivo.trim()===''){showToast('El servidor exige un motivo para cerrar con faltantes','error');return}
+    setCerrando(true)
+    try{
+      const {error}=await supabase.rpc('cerrar_orden_compra_con_faltantes',{p_orden_id:ordenActual.id,p_client_transaction_id:claveCierre.current,p_motivo:motivo.trim()})
+      if(error){showToast(error.message,'error');return}
+      showToast('Orden cerrada con faltantes','success')
+      await Promise.all([cargar(),onChanged()])
+    }finally{setCerrando(false)}
+  }
+
   const iniciarCorreccion=(id:string)=>{setCorrige(id);formRef.current?.scrollIntoView({behavior:'smooth',block:'start'})}
   const irARecepcion=(id:string)=>document.getElementById(`rec-${id}`)?.scrollIntoView({behavior:'smooth',block:'center'})
 
@@ -223,7 +243,7 @@ function Detalle({orden,variants,puedeRecibir,onClose,onChanged}:{orden:Orden;va
     {errorCarga&&<div className="mb-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300">{errorCarga}</div>}
 
     <div ref={formRef}/>
-    {editable&&corrige&&<div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200 flex flex-wrap justify-between gap-2"><span>Corrección de la <b>recepción #{numeroRecepcion[corrige]??'?'}</b>. Se guarda como una recepción NUEVA enlazada; la anterior no se modifica. El servidor la procesa como una recepción más: lo que declares se suma, no revierte lo ya registrado.</span><button onClick={()=>setCorrige(null)} disabled={enviando} className="underline">Quitar enlace</button></div>}
+    {editable&&corrige&&<div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200 flex flex-wrap justify-between gap-2"><span>Corrección de la <b>recepción #{numeroRecepcion[corrige]??'?'}</b>. Se guarda como una recepción NUEVA enlazada; la anterior no se modifica. Lo que declares se suma; y si se registró de más, indícalo en <b>Revertir</b> de la línea y el servidor lo resta con su propio rastro.</span><button onClick={()=>setCorrige(null)} disabled={enviando} className="underline">Quitar enlace</button></div>}
 
     <div className="space-y-2">{items.map(i=>{
       const pend=pendiente(i)
@@ -252,6 +272,8 @@ function Detalle({orden,variants,puedeRecibir,onClose,onChanged}:{orden:Orden;va
             {campo(i,'equivocado','Producto equivocado','text-purple-300')}
           </div>
           {(c.equivocado!==''||c.variantEq!=='')&&<label className="block"><span className="text-[10px] text-purple-300">Variante que llegó en su lugar</span><select disabled={enviando} value={c.variantEq} onChange={e=>setCap(i.id,{variantEq:e.target.value})} className="input-personal mt-0.5 w-full"><option value="">Selecciona la variante recibida...</option>{variants.filter(v=>v.id!==i.variant_id).map(v=><option key={v.id} value={v.id}>{nombreVariante(v)}{v.product?.control_serial?' · IMEI':''}</option>)}</select></label>}
+          {corrige&&!serial&&<label className="block"><span className="text-[10px] text-cyan-300">Revertir de lo ya registrado (corrección)</span><input type="number" min={0} step={1} inputMode="numeric" disabled={enviando} value={c.revertir} onChange={e=>setCap(i.id,{revertir:e.target.value})} className="input-personal mt-0.5 w-full" placeholder="0"/></label>}
+          {corrige&&serial&&<p className="text-[10px] text-gray-500">Para revertir unidades con IMEI hay que identificar cuáles: resuélvelas por cuarentena o baja desde Seriales.</p>}
           {sobrante>0&&<label className="flex items-start gap-2 rounded-lg border border-orange-500/40 bg-orange-500/10 p-2 text-[11px] text-orange-200"><input type="checkbox" disabled={enviando} checked={c.aceptaSobrante} onChange={e=>setCap(i.id,{aceptaSobrante:e.target.checked})} className="mt-0.5"/><span>Llegan físicamente {entero(c.buenas)+entero(c.danadas)} y quedan {pend} pendientes: sobrante de {sobrante}. Confirmo que el sobrante es real (acepta_sobrante). Sin esta confirmación el servidor rechaza la línea.</span></label>}
           {serial&&<div className="grid md:grid-cols-2 gap-2">
             <label className="block"><span className="text-[10px] text-gray-400">IMEI/serie de las unidades buenas ({nBuenos} de {entero(c.buenas)}) · <code>IMEI1|IMEI2</code></span><textarea disabled={enviando} value={c.imeiBuenos} onChange={e=>setCap(i.id,{imeiBuenos:e.target.value})} rows={Math.min(6,Math.max(2,entero(c.buenas)))} className="input-personal mt-0.5 w-full font-mono text-xs" placeholder={'IMEI-001\nIMEI-002|IMEI2-002'}/></label>
@@ -268,6 +290,7 @@ function Detalle({orden,variants,puedeRecibir,onClose,onChanged}:{orden:Orden;va
       {ultimoError&&<div className="mt-2 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-300"><p className="font-semibold">El servidor rechazó el envío o no respondió:</p><p className="mt-1 whitespace-pre-wrap">{ultimoError}</p><p className="mt-2 text-red-200/80">El estado de la orden y el historial ya se recargaron por si el envío llegó a aplicarse. Reintentar sin cambiar nada es seguro: se reutiliza la misma clave. Si cambias algo, se enviará como una recepción distinta.</p></div>}
       {aviso&&<div className={`mt-2 rounded-xl border p-3 text-xs ${aviso.tipo==='reintento'?'border-cyan-500/40 bg-cyan-500/10 text-cyan-200':'border-green-500/40 bg-green-500/10 text-green-300'}`}>{aviso.texto}</div>}
       <button onClick={enviar} disabled={enviando||cargando} className="mt-3 w-full rounded-xl bg-green-500 px-4 py-2 text-sm font-bold text-black disabled:opacity-40">{enviando?'Registrando...':ultimoError?'Reintentar envío':corrige?'Registrar corrección':'Registrar recepción'}</button>
+      {items.some(i=>pendiente(i)>0)&&<button onClick={cerrarConFaltantes} disabled={cerrando||enviando||cargando} className="mt-2 w-full rounded-xl border border-amber-500/40 py-2 text-xs text-amber-200 disabled:opacity-40">{cerrando?'Cerrando...':'Cerrar orden con faltantes'}</button>}
     </div>}
     {!editable&&!cargando&&<p className="mt-3 text-xs text-gray-500">{!abierta?`La orden está ${ordenActual.estado}: el servidor no admite más recepciones ni correcciones.`:'Tu puesto no figura entre los que el servidor autoriza a recibir compras.'}</p>}
     {!editable&&aviso&&<div className={`mt-2 rounded-xl border p-3 text-xs ${aviso.tipo==='reintento'?'border-cyan-500/40 bg-cyan-500/10 text-cyan-200':'border-green-500/40 bg-green-500/10 text-green-300'}`}>{aviso.texto}</div>}

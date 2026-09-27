@@ -176,7 +176,15 @@ const P1 = ['_p1_a_transferencias_parciales.sql', '_p1_b_recepcion_idempotente.s
   '_p2_h_capacidades.sql',
   '_p2_i_capacidades_funciones.sql',
   // Fase 18: terminal de conciliación y reembolsos a través del proveedor.
-  '_p2_j_reembolsos_proveedor.sql']
+  '_p2_j_reembolsos_proveedor.sql',
+  // P3.A · search_path fijado (ALTER FUNCTION ... SET) en las 4 funciones de private que no lo tenían.
+  '_p3_a_search_path_funciones_privadas.sql',
+  // P3.B · T3 (faltante como acumulador de pleno derecho) y T4 (clave de creación).
+  '_p3_b_transferencias_t3_t4.sql',
+  // P3.C · B3 (corrección que resta sobre orden ya recibida) y B4 (cierre con faltantes).
+  '_p3_c_recepcion_b3_b4.sql',
+  // P3.D · privilegios: RT-1 (documento/dirección), RT-2 (TRUNCATE), RT-3 (setval de correlativos).
+  '_p3_d_privilegios_hardening.sql']
 
 // MUTACIÓN: ENSAYO_OMITIR=archivo.sql[,otro.sql] no aplica esas migraciones
 // nuevas, para demostrar que las pruebas de negocio FALLAN sin la corrección.
